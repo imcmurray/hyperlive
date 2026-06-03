@@ -63,6 +63,47 @@
     } });
   }
 
+  // ---- collective theme vote panel ----------------------------------------
+  // The engine owns the ballot state; the scene only renders. Options arrive
+  // pre-validated (known theme keys + labels); we clean() defensively anyway.
+  let voteTimerTween = null; // counts the round's remaining time down
+  let voteHideTl = null;
+  function voteShow(on) {
+    const el = $("#vote");
+    if (!el) return;
+    el.dataset.show = on ? "true" : "false";
+  }
+  // re-render the option rows; bar fill is proportional to the current leader
+  function renderVoteOptions(options, leaderKey) {
+    const wrap = $("#vote-options");
+    if (!wrap) return;
+    const opts = (Array.isArray(options) ? options : [])
+      .filter((o) => o && THEMES.includes(o.key))
+      .slice(0, 5);
+    const max = Math.max(1, ...opts.map((o) => Number(o.votes) || 0));
+    wrap.innerHTML = "";
+    for (const o of opts) {
+      const votes = Math.max(0, Math.round(Number(o.votes) || 0));
+      const row = document.createElement("div");
+      row.className = "vote-opt" + (o.key === leaderKey ? " leader" : "");
+      const name = document.createElement("span");
+      name.className = "vote-name";
+      name.textContent = clean(o.label || o.key, 18);
+      const count = document.createElement("span");
+      count.className = "vote-count";
+      count.textContent = String(votes);
+      const bar = document.createElement("div");
+      bar.className = "vote-opt-bar";
+      const fill = document.createElement("i");
+      const pct = Math.round((votes / max) * 100);
+      if (gsap) gsap.to(fill, { width: pct + "%", duration: 0.45, ease: "power2.out" });
+      else fill.style.width = pct + "%";
+      bar.appendChild(fill);
+      row.append(name, count, bar);
+      wrap.appendChild(row);
+    }
+  }
+
   // ---- background crossfade state -----------------------------------------
   const layers = [$("#bg-a"), $("#bg-b")];
   let active = 0;            // index of the visible layer
@@ -814,6 +855,70 @@
       const el = $("#latency");
       if (el) { el.textContent = "delay " + (ms / 1000).toFixed(1) + "s"; el.dataset.show = "true"; }
       return { ms };
+    },
+
+    // ---- collective theme vote (engine-driven rounds) --------------------
+    // open a round: render options + run the countdown bar/timer for durationMs
+    voteStart(p = {}) {
+      const el = $("#vote");
+      if (!el) return { ok: false };
+      const ms = clampNum(p.durationMs, 2000, 300000, 30000);
+      const title = $(".vote-title");
+      if (title) title.textContent = clean(p.title, 28) || "VOTE THE NEXT THEME";
+      if (voteHideTl) { voteHideTl.kill(); voteHideTl = null; }
+      el.classList.remove("vote-won");
+      renderVoteOptions(p.options, p.leader);
+      voteShow(true);
+      if (gsap) {
+        gsap.killTweensOf(el, "opacity,y,scale");
+        gsap.fromTo(el, { opacity: 0, y: 24, scale: 0.94 },
+          { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.5)" });
+      }
+      // countdown: fill shrinks full→empty; timer text ticks whole seconds
+      const fill = $("#vote-progress-fill");
+      const timer = $("#vote-timer");
+      if (voteTimerTween) { voteTimerTween.kill(); voteTimerTween = null; }
+      if (gsap) {
+        if (fill) gsap.fromTo(fill, { width: "100%" }, { width: "0%", duration: ms / 1000, ease: "none" });
+        const t = { v: ms };
+        voteTimerTween = gsap.to(t, { v: 0, duration: ms / 1000, ease: "none",
+          onUpdate: () => { if (timer) timer.textContent = Math.ceil(t.v / 1000) + "s"; },
+          onComplete: () => { if (timer) timer.textContent = "0s"; } });
+      } else if (timer) {
+        timer.textContent = Math.ceil(ms / 1000) + "s";
+      }
+      return { ok: true, durationMs: ms };
+    },
+
+    // live tally update during a round
+    voteUpdate(p = {}) {
+      renderVoteOptions(p.options, p.leader);
+      return { ok: true };
+    },
+
+    // close a round: flash the winner, then fade the panel out
+    voteEnd(p = {}) {
+      const el = $("#vote");
+      if (!el) return { ok: false };
+      if (voteTimerTween) { voteTimerTween.kill(); voteTimerTween = null; }
+      const winner = THEMES.includes(p.winner) ? p.winner : null;
+      const timer = $("#vote-timer");
+      if (winner) {
+        const label = clean(p.winnerLabel, 18) || winner;
+        if (timer) timer.textContent = label + " wins!";
+        el.classList.add("vote-won");
+        renderVoteOptions(p.options || [{ key: winner, label, votes: p.votes || 1 }], winner);
+        if (gsap) SceneAPI.burst({ intensity: 0.4 });
+      }
+      // hold the result on screen, then dismiss
+      if (gsap) {
+        voteHideTl = gsap.timeline({ delay: winner ? 2.6 : 0.2 });
+        voteHideTl.to(el, { opacity: 0, y: 16, scale: 0.96, duration: 0.5, ease: "power2.in",
+          onComplete: () => { voteShow(false); el.classList.remove("vote-won"); } });
+      } else {
+        voteShow(false);
+      }
+      return { ok: true, winner };
     },
 
     // show/hide the CPU-rendering warning banner (operator can dismiss it)

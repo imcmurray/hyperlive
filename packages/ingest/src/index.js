@@ -10,6 +10,7 @@ import { createDirector } from "./director.js";
 import { createMoodState } from "./mood-state.js";
 import { createMoodEngine } from "./mood.js";
 import { createReactions } from "./reactions.js";
+import { createVotes } from "./votes.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
 import { youtubeSource } from "./youtube.js";
 
@@ -17,6 +18,7 @@ const moderator = createModerator();
 const director = createDirector();
 const moodState = createMoodState({ windowMs: config.moodWindowMs });
 const reactions = createReactions({ postMutate, log: console.log });
+const votes = createVotes({ postMutate, log: console.log });
 
 let processed = 0;
 let applied = 0;
@@ -66,6 +68,17 @@ async function handle(comment) {
   // feed the Collective Mood Engine (only moderated comments reach the aggregate)
   moodState.record(comment);
 
+  // Vote ballots ("!theme:x") are CONSUMED here — they drive a vote round and
+  // are never shown as a message or sent to the director.
+  if (config.votes) {
+    const voted = votes.handle(comment);
+    if (voted) {
+      console.log(`  ⚑ VOTE  ${comment.author} → ${voted}`);
+      await audit({ stage: "vote", comment, theme: voted });
+      return;
+    }
+  }
+
   // Fun Layer: instant emoji reactions + first-time welcome (parallel to the
   // director, no cooldown — meant to feel immediate)
   const fired = config.reactions ? await reactions.handle(comment).catch(() => []) : [];
@@ -111,6 +124,7 @@ async function main() {
 
   process.on("SIGINT", () => {
     if (moodEngine) moodEngine.stop();
+    votes.stop();
     console.log(`\n[ingest] stopping. processed=${processed} applied=${applied} blocked=${blocked}`);
     process.exit(0);
   });

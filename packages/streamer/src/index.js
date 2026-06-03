@@ -28,6 +28,9 @@ const ALLOWED_ACTIONS = new Set([
   "setMood",
   "react",
   "setDelay",
+  "voteStart",
+  "voteUpdate",
+  "voteEnd",
   "renderWarning",
   "status",
 ]);

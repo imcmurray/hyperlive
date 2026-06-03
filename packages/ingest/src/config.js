@@ -29,6 +29,11 @@ export const config = {
   moodWindowMs: num(process.env.MOOD_WINDOW_MS, 75000),     // rolling aggregate window
   moodLLM: ["on", "anthropic", "true"].includes((process.env.MOOD_LLM || "off").toLowerCase()), // else rules-based
 
+  // --- Collective theme voting (!theme:x ballots → countdown round → winner) ---
+  votes: (process.env.VOTES || "on").toLowerCase() !== "off",
+  voteDurationMs: num(process.env.VOTE_DURATION_MS, 30000), // countdown per round
+  voteCooldownMs: num(process.env.VOTE_COOLDOWN_MS, 8000),  // gap before a new round can open
+
   // --- Fun Layer: instant emoji reactions + first-time welcome ---
   reactions: (process.env.REACTIONS || "on").toLowerCase() !== "off",
   // on-screen "typed → on-scene" latency readout

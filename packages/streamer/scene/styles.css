@@ -469,6 +469,71 @@ body.lite-render .ovl-scanlines { mix-blend-mode: normal; }
 }
 #render-warning[data-show="false"] { display: none; }
 
+/* collective theme vote panel — lower-right, the clear band below the top-right
+   shoutouts and clear of the centered headline + bottom ticker. Right-anchored
+   so GSAP can own transform for the pop-in without fighting a centering offset. */
+#vote {
+  position: absolute; right: 40px; bottom: 120px; z-index: 7;
+  width: 420px; padding: 18px 22px 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(14,10,30,0.9), rgba(8,6,20,0.82));
+  border: 1px solid color-mix(in srgb, var(--c1) 45%, rgba(255,255,255,0.14));
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04) inset;
+  will-change: transform, opacity;
+}
+#vote[data-show="false"] { display: none; }
+#vote .vote-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+#vote .vote-title {
+  font-size: 13px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase;
+  color: rgba(255,255,255,0.82);
+}
+#vote .vote-timer {
+  font-family: "Liberation Mono", monospace; font-size: 15px; font-weight: 700;
+  color: var(--c3); text-shadow: 0 0 12px color-mix(in srgb, var(--c3) 50%, transparent);
+}
+#vote .vote-options { display: flex; flex-direction: column; gap: 9px; }
+.vote-opt {
+  position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center;
+  gap: 6px 10px; padding: 7px 12px; border-radius: 10px;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.07);
+  transition: border-color 0.3s, background 0.3s;
+}
+.vote-opt .vote-name { font-size: 17px; font-weight: 700; letter-spacing: 0.02em; color: rgba(255,255,255,0.92); }
+.vote-opt .vote-count {
+  font-family: "Liberation Mono", monospace; font-size: 16px; font-weight: 700;
+  color: rgba(255,255,255,0.6); justify-self: end;
+}
+.vote-opt .vote-opt-bar {
+  grid-column: 1 / -1; height: 6px; border-radius: 4px; margin-top: 2px;
+  background: rgba(255,255,255,0.08); overflow: hidden;
+}
+.vote-opt .vote-opt-bar i {
+  display: block; height: 100%; width: 0; border-radius: 4px;
+  background: linear-gradient(90deg, var(--c2), var(--c1));
+}
+.vote-opt.leader {
+  background: color-mix(in srgb, var(--c1) 16%, rgba(255,255,255,0.05));
+  border-color: color-mix(in srgb, var(--c1) 60%, transparent);
+}
+.vote-opt.leader .vote-name { color: #fff; }
+.vote-opt.leader .vote-count { color: var(--c1); }
+.vote-opt.leader .vote-opt-bar i { background: linear-gradient(90deg, var(--c1), var(--c3)); }
+#vote .vote-progress {
+  height: 4px; border-radius: 3px; margin-top: 14px;
+  background: rgba(255,255,255,0.08); overflow: hidden;
+}
+#vote .vote-progress i {
+  display: block; height: 100%; width: 100%;
+  background: linear-gradient(90deg, var(--c1), var(--c3));
+}
+#vote .vote-hint {
+  margin-top: 10px; font-size: 12px; letter-spacing: 0.04em;
+  color: rgba(255,255,255,0.45); text-align: center;
+}
+#vote .vote-hint b { color: rgba(255,255,255,0.72); font-weight: 700; }
+#vote.vote-won { border-color: var(--c1); box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px color-mix(in srgb, var(--c1) 40%, transparent); }
+#vote.vote-won .vote-timer { color: var(--c1); }
+
 #flash { position: absolute; inset: 0; z-index: 8; pointer-events: none; background: #fff; opacity: 0; }
 
 /* expanding shockwave ring emitted by burst */

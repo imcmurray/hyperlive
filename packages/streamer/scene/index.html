@@ -86,6 +86,17 @@
       <!-- charming viewer reactions (emoji micro-effects) pop in here -->
       <div id="fx-react" aria-hidden="true"></div>
 
+      <!-- collective theme vote panel (rounds opened by !theme:x ballots) -->
+      <div id="vote" data-show="false">
+        <div class="vote-head">
+          <span class="vote-title">VOTE THE NEXT THEME</span>
+          <span class="vote-timer" id="vote-timer"></span>
+        </div>
+        <div class="vote-options" id="vote-options"></div>
+        <div class="vote-progress"><i id="vote-progress-fill"></i></div>
+        <div class="vote-hint">type <b>!theme:name</b> in chat to vote</div>
+      </div>
+
       <!-- status chip -->
       <div id="status" data-show="true">booting…</div>
 

@@ -44,6 +44,8 @@ const WARM = ["love this ❤️", "so beautiful ✨", "❤️❤️", "gorgeous 
 const CALM = ["so chill 🌙", "very relaxing 😌", "peaceful vibes 🍃", "🌊 nice", "cozy 😌", "calm and dreamy 🌙"];
 const PLAIN = ["hi everyone", "first time here!", "what is this 👀", "how does it work", "this is cool", "👋", "just vibing", "😂 lol", "🤣 amazing", "whoa 🤯"];
 const NAMES = ["nova", "pixel", "echo", "riff", "lumen", "vortex", "gizmo", "flux", "halo", "sol", "zen", "kit", "mox", "wren", "ivy", "juno", "bee", "fox", "sky", "rune", "ash", "dot", "ember", "koi"];
+// a few popular themes the simulated crowd will campaign for via "!theme:x" ballots
+const VOTE_THEMES = ["forest", "ocean", "synthwave", "aurora", "ember", "frost", "neon"];
 
 export async function* liveSimulatorSource() {
   let n = 0;
@@ -55,9 +57,13 @@ export async function* liveSimulatorSource() {
       const fresh = Math.random() < 0.4; // ~40% brand-new author → fires a welcome
       const author = "@" + pick(NAMES) + (fresh ? n : 1 + ((Math.random() * 5) | 0));
       const r = Math.random();
-      const text = surge
-        ? (r < 0.62 ? pick(HYPE) : r < 0.82 ? pick(PLAIN) : pick(WARM))
-        : (r < 0.5 ? pick(CALM) : r < 0.85 ? pick(PLAIN) : pick(WARM));
+      // ~14% of comments are theme ballots (consumed as votes, not shown) so a
+      // vote round visibly opens, fills, and resolves during the live demo
+      const text = r < 0.14
+        ? `!theme:${pick(VOTE_THEMES)}`
+        : surge
+          ? (r < 0.62 ? pick(HYPE) : r < 0.82 ? pick(PLAIN) : pick(WARM))
+          : (r < 0.5 ? pick(CALM) : r < 0.85 ? pick(PLAIN) : pick(WARM));
       const c = { id: `live-${n}`, author, text };
       // synthetic "typed N ms ago" so the on-scene delay readout looks realistic
       // (real YouTube uses the actual publishedAt timestamp)
