@@ -6,6 +6,12 @@ HTML/CSS/animation authoring model, but streamed live instead of rendered offlin
 
 > Write HTML. Mutate it live from moderated chat. Stream it to YouTube.
 
+**▶ [Watch it live on YouTube](https://www.youtube.com/live/NjpZs7JjWIU)**
+
+[![HyperLive scene — layered gradient background, mutable titles, and a pop-up countdown card](docs/screenshot.png)](https://www.youtube.com/live/NjpZs7JjWIU)
+
+<sub>The live scene: kicker / gradient headline / subhead, the bottom pop-up cards with countdown dots, and (top) the on-screen warning shown when it auto-falls back to CPU rendering. Click to watch live.</sub>
+
 ## The idea
 
 - A long-lived **HTML/CSS/GSAP scene** renders in a real (headless) browser.
