@@ -1,0 +1,37 @@
+// Central config, all from env so nothing secret is committed.
+const int = (v, d) => (v === undefined || v === "" ? d : parseInt(v, 10));
+
+export const config = {
+  // --- output / encode ---
+  width: int(process.env.VIDEO_WIDTH, 1280),
+  height: int(process.env.VIDEO_HEIGHT, 720),
+  fps: int(process.env.VIDEO_FPS, 30),
+  videoBitrate: process.env.VIDEO_BITRATE || "4500k",
+  audioMode: (process.env.AUDIO_MODE || "silent").toLowerCase(), // silent | tone
+
+  // --- YouTube RTMP ---
+  rtmpUrl: process.env.YT_RTMP_URL || "rtmp://a.rtmp.youtube.com/live2",
+  streamKey: process.env.YT_STREAM_KEY || "",
+
+  // --- local ---
+  controlPort: int(process.env.CONTROL_PORT, 8080),
+  display: process.env.DISPLAY || ":99",
+  chromiumPath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
+
+  // file the streamer watches for directives (one JSON object per write)
+  directivesFile: process.env.DIRECTIVES_FILE || "/app/control/directives.json",
+
+  // when true, run the scene + control server + browser but DON'T push RTMP
+  // (handy for local visual testing without a YouTube key)
+  dryRun: (process.env.DRY_RUN || "false").toLowerCase() === "true",
+
+  // capture path: "x11grab" (headful + Xvfb, software) | "screencast" (headless + GPU via CDP)
+  capture: (process.env.CAPTURE || "x11grab").toLowerCase(),
+  // if set, screencast encoder writes to this file instead of RTMP (for safe testing)
+  outputFile: process.env.OUTPUT_FILE || "",
+};
+
+export function ingestUrl() {
+  const base = config.rtmpUrl.replace(/\/+$/, "");
+  return `${base}/${config.streamKey}`;
+}

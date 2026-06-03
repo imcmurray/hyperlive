@@ -1,0 +1,414 @@
+/* ===========================================================================
+   Premium-but-lightweight scene styling.
+   Designed for software rendering (--disable-gpu): depth via layered radial
+   gradients + transforms + opacity, NOT big blur filters or WebGL.
+   Everything is sized against a fixed 1280x720 stage to match the encoder.
+=========================================================================== */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
+  background: #05030f; color: #f5f3ff;
+  font-family: "Inter", "Liberation Sans", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Authored in a fixed 1280x720 design space, scaled to fill the viewport (both
+   16:9 → 1.5x = 1920x1080, no letterboxing). --sscale is set in scene.js. */
+#stage {
+  position: relative; width: 1280px; height: 720px; overflow: hidden;
+  transform: scale(var(--sscale, 1)); transform-origin: top left; will-change: transform;
+}
+
+/* ---- theme palettes (class-based: applied to BOTH body and a bg-layer) ----
+   body.theme-*  → drives UI accents (headline gradient, kicker, ticker)
+   .bg-layer.theme-* → drives the background gradient + auras for that layer  */
+.theme-synthwave {
+  --c1: #ff2e97; --c2: #7a2bff; --c3: #16d6ff;
+  --bg-grad: radial-gradient(125% 125% at 50% 0%, #2a0a4a 0%, #0d0626 52%, #05030f 100%);
+  --grid: rgba(255,255,255,0.05);
+}
+.theme-sunrise {
+  --c1: #ff8a00; --c2: #ff2e63; --c3: #ffd166;
+  --bg-grad: radial-gradient(130% 130% at 50% 115%, #ff6a3d 0%, #b21e63 38%, #2a0a2e 78%, #160514 100%);
+  --grid: rgba(255,255,255,0.045);
+}
+.theme-mono {
+  --c1: #f0f0f0; --c2: #8a8a8a; --c3: #ffffff;
+  --bg-grad: radial-gradient(125% 125% at 50% 0%, #2c2c2c 0%, #141414 58%, #090909 100%);
+  --grid: rgba(255,255,255,0.06);
+}
+.theme-forest {
+  --c1: #19f59c; --c2: #0bb37a; --c3: #d2ff5e;
+  --bg-grad: radial-gradient(130% 130% at 50% 105%, #0b6b46 0%, #064a30 42%, #053022 72%, #04140d 100%);
+  --grid: rgba(210,255,94,0.05);
+}
+.theme-aurora {
+  --c1: #3df5c4; --c2: #7a5cff; --c3: #b6ff5e;
+  --bg-grad: radial-gradient(130% 130% at 50% 110%, #0e7d6b 0%, #1b3a8a 40%, #221a52 72%, #0a0820 100%);
+  --grid: rgba(122,92,255,0.06);
+}
+.theme-ember {
+  --c1: #ff7b29; --c2: #ff3d3d; --c3: #ffcf5e;
+  --bg-grad: radial-gradient(125% 125% at 50% 118%, #ff6326 0%, #8a1c10 38%, #3a0f08 74%, #120403 100%);
+  --grid: rgba(255,123,41,0.05);
+}
+.theme-midnight {
+  --c1: #4f8cff; --c2: #7a5cff; --c3: #5ef0ff;
+  --bg-grad: radial-gradient(125% 125% at 50% 0%, #14224a 0%, #0a1430 55%, #04060f 100%);
+  --grid: rgba(94,240,255,0.05);
+}
+.theme-vapor {
+  --c1: #ff71ce; --c2: #b967ff; --c3: #01cdfe;
+  --bg-grad: radial-gradient(130% 130% at 50% 110%, #ff8fd0 0%, #8a5cff 40%, #3a2a6a 75%, #160a2e 100%);
+  --grid: rgba(1,205,254,0.06);
+}
+.theme-matrix {
+  --c1: #39ff14; --c2: #0aff9d; --c3: #c8ff00;
+  --bg-grad: radial-gradient(125% 125% at 50% 0%, #0a2a14 0%, #04140a 60%, #010602 100%);
+  --grid: rgba(57,255,20,0.07);
+}
+.theme-gold {
+  --c1: #ffd35e; --c2: #7a4bff; --c3: #fff1b8;
+  --bg-grad: radial-gradient(125% 125% at 50% 8%, #3a2a6a 0%, #241640 55%, #0e0820 100%);
+  --grid: rgba(255,211,94,0.05);
+}
+.theme-crimson {
+  --c1: #ff3b5c; --c2: #ff6b3d; --c3: #ffb3c1;
+  --bg-grad: radial-gradient(125% 125% at 50% 115%, #ff3b5c 0%, #8a1226 40%, #3a0810 76%, #120304 100%);
+  --grid: rgba(255,59,92,0.05);
+}
+.theme-neon {
+  --c1: #ff10f0; --c2: #10f0ff; --c3: #fffb00;
+  --bg-grad: radial-gradient(120% 120% at 50% 100%, #2a0033 0%, #0a0012 55%, #000008 100%);
+  --grid: rgba(16,240,255,0.06);
+}
+.theme-dusk {
+  --c1: #ff7e5f; --c2: #9d50bb; --c3: #ffd194;
+  --bg-grad: radial-gradient(130% 130% at 50% 112%, #ff7e5f 0%, #6a3093 45%, #2a1a3e 80%, #120a1e 100%);
+  --grid: rgba(157,80,187,0.05);
+}
+.theme-ocean {
+  --c1: #00d4ff; --c2: #0077be; --c3: #7afcff;
+  --bg-grad: radial-gradient(125% 125% at 50% 0%, #0a3d5c 0%, #04243a 55%, #021018 100%);
+  --grid: rgba(0,212,255,0.06);
+}
+.theme-lava {
+  --c1: #ff4500; --c2: #ff8c00; --c3: #ffd700;
+  --bg-grad: radial-gradient(120% 120% at 50% 118%, #ff4500 0%, #8a1500 40%, #3a0800 74%, #100200 100%);
+  --grid: rgba(255,140,0,0.05);
+}
+.theme-frost {
+  --c1: #a8e6ff; --c2: #5eb0ef; --c3: #ffffff;
+  --bg-grad: radial-gradient(125% 125% at 50% 0%, #2a5a7a 0%, #16303f 55%, #0a1822 100%);
+  --grid: rgba(168,230,255,0.07);
+}
+.theme-glitch {
+  --c1: #ff00a0; --c2: #00ffe0; --c3: #aaff00;
+  --bg-grad: radial-gradient(120% 120% at 50% 0%, #1a0a2a 0%, #0a0a16 60%, #050008 100%);
+  --grid: rgba(0,255,224,0.06);
+}
+.theme-retro {
+  --c1: #ffb000; --c2: #ff5e3a; --c3: #39ff14;
+  --bg-grad: radial-gradient(120% 120% at 50% 50%, #1a1206 0%, #0e0a04 60%, #050300 100%);
+  --grid: rgba(255,176,0,0.06);
+}
+.theme-void {
+  --c1: #7a5cff; --c2: #3a2a6a; --c3: #b6a8ff;
+  --bg-grad: radial-gradient(140% 120% at 30% 22%, #1a1235 0%, #0a0818 45%, #020108 100%);
+  --grid: rgba(122,92,255,0.045);
+}
+.theme-plasma {
+  --c1: #ff2ed1; --c2: #2ee6ff; --c3: #b22eff;
+  --bg-grad: radial-gradient(120% 120% at 50% 50%, #3a0a4a 0%, #160a3a 55%, #06021a 100%);
+  --grid: rgba(255,46,209,0.05);
+}
+.theme-noir {
+  --c1: #e8e8e8; --c2: #6a6a6a; --c3: #ff2e2e;
+  --bg-grad: radial-gradient(125% 125% at 50% 0%, #1a1a1a 0%, #0c0c0c 60%, #030303 100%);
+  --grid: rgba(255,255,255,0.05);
+}
+.theme-solar {
+  --c1: #ff7e3d; --c2: #ff5e3a; --c3: #fff3c4;
+  --bg-grad: radial-gradient(125% 125% at 50% -12%, #fff3c4 0%, #ffb74d 28%, #ff7e3d 52%, #8a2a12 88%);
+  --grid: rgba(255,255,255,0.06);
+}
+.theme-holo {
+  --c1: #00fff0; --c2: #ff00e5; --c3: #a0fff0;
+  --bg-grad: radial-gradient(125% 125% at 50% 0%, #0a2a3a 0%, #1a0a2a 55%, #05020f 100%);
+  --grid: rgba(0,255,240,0.06);
+}
+
+/* ============================ background ================================= */
+#bg { position: absolute; inset: 0; z-index: 0; }
+
+.bg-layer {
+  position: absolute; inset: 0;
+  transform-origin: 50% 50%;
+  will-change: opacity, transform;
+}
+.bg-layer.is-hidden { display: none; }
+
+.bg-base { position: absolute; inset: 0; background: var(--bg-grad); }
+
+/* soft color auras — radial gradients (cheap) instead of blurred solids */
+.aura {
+  position: absolute; border-radius: 50%;
+  mix-blend-mode: screen; opacity: 0.5; /* rich on GPU; lite-render drops the blend */
+  will-change: transform;
+}
+.aura-1 {
+  width: 660px; height: 660px; top: -170px; left: -130px;
+  background: radial-gradient(circle, var(--c1) 0%, transparent 68%);
+}
+.aura-2 {
+  width: 620px; height: 620px; bottom: -200px; right: -120px;
+  background: radial-gradient(circle, var(--c2) 0%, transparent 70%);
+}
+.aura-3 {
+  width: 460px; height: 460px; top: 180px; left: 540px; opacity: 0.32;
+  background: radial-gradient(circle, var(--c3) 0%, transparent 72%);
+}
+
+/* faint grid, faded toward edges via a baked gradient overlay (no costly mask) */
+.bg-grid {
+  position: absolute; inset: 0; opacity: 0.6;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* ---- toggleable effects ---- */
+.fx { position: absolute; inset: 0; pointer-events: none; }
+.fx.is-off { display: none; }
+
+#fx-rays {
+  inset: -25%;
+  background: repeating-conic-gradient(from 90deg at 50% 0%,
+      rgba(255,255,255,0.05) 0deg 4deg, transparent 4deg 13deg);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 58%);
+          mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 58%);
+  mix-blend-mode: screen; transform-origin: 50% 0%; opacity: 0.7;
+  will-change: transform;
+}
+#fx-particles { z-index: 1; }
+
+/* rotating spotlight sweep (lighthouse beam) */
+#fx-sweep {
+  inset: -30%;
+  background: conic-gradient(from 0deg at 50% 50%,
+      rgba(255,255,255,0) 0deg, rgba(255,255,255,0.12) 10deg,
+      rgba(255,255,255,0) 26deg, rgba(255,255,255,0) 360deg);
+  mix-blend-mode: screen; transform-origin: 50% 50%; will-change: transform;
+}
+
+/* drifting mist bands */
+#fx-fog .fog-band {
+  position: absolute; left: -20%; width: 140%; height: 240px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+  mix-blend-mode: screen; will-change: transform;
+}
+#fx-fog .fog-band:nth-child(1) { top: 16%; opacity: 0.8; }
+#fx-fog .fog-band:nth-child(2) { top: 46%; opacity: 0.6; }
+#fx-fog .fog-band:nth-child(3) { top: 74%; opacity: 0.7; }
+
+/* floating bokeh orbs (positions/sizes set inline in scene.js) */
+#fx-bokeh .orb {
+  position: absolute; border-radius: 50%;
+  background: radial-gradient(circle, var(--c3) 0%, transparent 68%);
+  mix-blend-mode: screen; opacity: 0.4; will-change: transform, opacity;
+}
+
+/* animated perspective grid (synthwave/matrix floor) */
+#fx-grid { overflow: hidden; perspective: 320px; }
+#fx-grid .grid-plane {
+  position: absolute; left: -50%; right: -50%; top: 45%; bottom: -60%;
+  transform: rotateX(66deg); transform-origin: 50% 0%;
+  background-image:
+    linear-gradient(var(--c2) 1px, transparent 1px),
+    linear-gradient(90deg, var(--c2) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 40%);
+          mask-image: linear-gradient(to bottom, transparent, #000 40%);
+  animation: gridscroll 4s linear infinite; opacity: 0.5;
+}
+@keyframes gridscroll { from { background-position: 0 0; } to { background-position: 0 56px; } }
+
+/* tiny floating dust motes */
+#fx-dust .dustmote {
+  position: absolute; border-radius: 50%; background: var(--c3);
+  opacity: 0.25; will-change: transform;
+}
+
+/* matrix-style data rain + particle canvases share base */
+#fx-datarain { z-index: 1; }
+
+/* chromatic-aberration hint: offset red/cyan edge fringing (cheap, no blend) */
+.ovl-chroma {
+  background:
+    radial-gradient(120% 120% at 49.4% 50%, transparent 60%, rgba(255,0,40,0.16) 100%),
+    radial-gradient(120% 120% at 50.6% 50%, transparent 60%, rgba(0,200,255,0.16) 100%);
+}
+
+/* holographic horizontal scan line (moves top→bottom; gsap drives translateY) */
+.ovl-holoscan {
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--c1) 60%, transparent), transparent);
+  height: 90px; top: 0; bottom: auto; will-change: transform;
+}
+
+/* film-burn / light-leak flash element (gsap flashes opacity) */
+.ovl-filmburn {
+  background: radial-gradient(60% 90% at 110% 0%, rgba(255,170,80,0.55), rgba(255,90,40,0.25) 40%, transparent 70%);
+  opacity: 0; mix-blend-mode: screen;
+}
+
+/* spark / ripple / lightning transient children */
+#fx-sparks .spark { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--c3); box-shadow: 0 0 8px var(--c3); }
+#fx-ripple .ring { position: absolute; border: 2px solid var(--c3); border-radius: 50%; }
+#fx-lightning .bolt { position: absolute; top: 0; width: 3px; background: linear-gradient(var(--c3), transparent); box-shadow: 0 0 14px var(--c1); }
+
+/* audio-style equalizer at the bottom */
+#fx-bars {
+  position: absolute; left: 0; right: 0; top: auto; bottom: 64px; height: 120px; z-index: 4;
+  display: flex; align-items: flex-end; justify-content: center; gap: 5px;
+  padding: 0 80px;
+}
+/* ID rule's display:flex outranks .fx.is-off — restore the off state */
+#fx-bars.is-off { display: none; }
+#fx-bars .bar {
+  flex: 1; max-width: 13px; height: 100%;
+  background: linear-gradient(var(--c1), var(--c3));
+  border-radius: 3px 3px 0 0; opacity: 0.85;
+  transform-origin: bottom; transform: scaleY(0.3); will-change: transform;
+}
+
+/* ============================== content ================================= */
+#content {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  padding: 0 96px;
+}
+
+#kicker {
+  font-weight: 700; letter-spacing: 0.42em; font-size: 18px;
+  color: var(--c3); margin-bottom: 18px;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--c3) 55%, transparent);
+}
+
+#headline { font-size: 78px; line-height: 1.02; font-weight: 800; letter-spacing: -0.02em; max-width: 1000px; will-change: transform; }
+#headline-inner {
+  display: inline-block;
+  /* 3-stop (c1→c3→c1) at 200% width: static (position 0) looks like c1→c3, and
+     can pan seamlessly when setHeadlineGradient animation is toggled on */
+  background: linear-gradient(92deg, var(--c1), var(--c3), var(--c1));
+  background-size: 200% 100%; background-position: 0% 0%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  will-change: transform, opacity;
+}
+
+#subhead { margin-top: 22px; font-size: 26px; font-weight: 500; color: rgba(245,243,255,0.8); max-width: 860px; }
+
+/* ====================== shoutouts (comment / SC) ======================== */
+#shoutouts {
+  position: absolute; right: 40px; top: 40px; z-index: 5;
+  display: flex; flex-direction: column; gap: 14px; align-items: flex-end; width: 430px;
+}
+.shoutout {
+  position: relative; width: 100%; overflow: hidden;
+  border-radius: 16px; padding: 16px 20px 16px 24px;
+  background: linear-gradient(135deg, rgba(16,12,32,0.82), rgba(10,8,22,0.72));
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 14px 44px rgba(0,0,0,0.5);
+  will-change: transform, opacity;
+}
+.shoutout .accent { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c3); }
+.shoutout .who { font-size: 14px; font-weight: 700; letter-spacing: 0.08em; opacity: 0.72; }
+.shoutout .msg { font-size: 20px; font-weight: 600; margin-top: 4px; }
+.shoutout.tier-small  .accent { background: var(--c3); }
+.shoutout.tier-medium .accent { background: var(--c1); }
+.shoutout.tier-medium { background: linear-gradient(135deg, rgba(40,10,40,0.84), rgba(18,8,30,0.74)); }
+.shoutout.tier-large {
+  border: 1.5px solid color-mix(in srgb, var(--c1) 70%, transparent);
+  background: linear-gradient(135deg, rgba(60,10,48,0.9), rgba(20,8,60,0.86));
+}
+.shoutout.tier-large .accent { width: 6px; background: linear-gradient(var(--c1), var(--c3)); }
+
+/* ==================== bottom rotating cards ============================= */
+#ticker-cards {
+  position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%);
+  z-index: 6; width: 820px; height: 70px;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.tcard {
+  position: absolute; display: flex; align-items: center;
+  max-width: 820px; padding: 14px 34px 24px; border-radius: 16px;
+  background: linear-gradient(135deg, rgba(16,12,30,0.88), rgba(8,6,18,0.8));
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow: 0 16px 44px rgba(0,0,0,0.55);
+  white-space: nowrap; will-change: transform, opacity;
+}
+.tcard::before { content: "◆"; margin-right: 14px; color: var(--c1); font-size: 16px; }
+.tcard-label { font-size: 23px; font-weight: 700; letter-spacing: 0.01em; color: #f5f3ff; }
+/* countdown dots: light up one at a time across the card's hold time */
+.tcard-dots {
+  position: absolute; left: 0; right: 0; bottom: 9px;
+  display: flex; gap: 8px; justify-content: center;
+}
+.tcard-dot {
+  width: 3.5px; height: 3.5px; border-radius: 50%;
+  background: rgba(255,255,255,0.16); will-change: transform;
+}
+.tcard-dot.on { background: var(--c3); box-shadow: 0 0 6px var(--c3); }
+
+/* ===================== cinematic overlays (default on) =================== */
+#overlays { position: absolute; inset: 0; z-index: 7; pointer-events: none; }
+.ovl { position: absolute; inset: 0; }
+.ovl.is-off { display: none; }
+.ovl-vignette { background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.55) 100%); }
+.ovl-scanlines {
+  background: repeating-linear-gradient(rgba(0,0,0,0.14) 0 1px, transparent 1px 3px);
+  opacity: 0.32; mix-blend-mode: soft-light; will-change: transform;
+}
+.ovl-grain {
+  opacity: 0.06; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
+/* ============================== misc ==================================== */
+#status {
+  position: absolute; left: 16px; bottom: 70px; z-index: 9;
+  font-size: 12px; font-family: "Liberation Mono", monospace;
+  padding: 4px 10px; border-radius: 6px;
+  background: rgba(0,0,0,0.5); color: #9affd0; border: 1px solid rgba(154,255,208,0.3);
+}
+#status[data-show="false"] { display: none; }
+
+/* CPU fallback ("lite") — drop the expensive blend modes to keep fps up */
+body.lite-render .aura { mix-blend-mode: normal; }
+body.lite-render .ovl-grain,
+body.lite-render .ovl-scanlines { mix-blend-mode: normal; }
+
+/* CPU-rendering performance warning banner */
+#render-warning {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
+  font-family: "Liberation Mono", monospace; font-size: 14px; font-weight: 700;
+  letter-spacing: 0.04em; color: #ffd86b;
+  padding: 8px 18px; border-radius: 8px;
+  background: rgba(40,20,0,0.78); border: 1px solid rgba(255,180,60,0.55);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+}
+#render-warning[data-show="false"] { display: none; }
+
+#flash { position: absolute; inset: 0; z-index: 8; pointer-events: none; background: #fff; opacity: 0; }
+
+/* expanding shockwave ring emitted by burst */
+.burst-ring {
+  position: absolute; left: 50%; top: 50%; width: 1400px; height: 1400px;
+  margin: -700px 0 0 -700px; border-radius: 50%;
+  border: 2px solid var(--c3); transform-origin: center;
+  pointer-events: none; z-index: 8;
+}

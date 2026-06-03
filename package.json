@@ -1,0 +1,13 @@
+{
+  "name": "hyperlive",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Comment- and payment-driven live YouTube channel built on a HyperFrames-style HTML/CSS/animation authoring model. HTML scene → real-time browser capture → ffmpeg → YouTube RTMP.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "up": "docker compose up --build",
+    "down": "docker compose down"
+  }
+}

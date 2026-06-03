@@ -1,0 +1,36 @@
+// All config via env so nothing secret is committed.
+const num = (v, d) => (v === undefined || v === "" ? d : Number(v));
+
+export const config = {
+  // where approved directives are POSTed (the Phase 0 streamer control plane)
+  mutateUrl: process.env.MUTATE_URL || "http://localhost:8080/mutate",
+
+  // comment source: "simulate" (no creds) | "youtube" (needs OAuth + liveChatId)
+  source: (process.env.SOURCE || "simulate").toLowerCase(),
+
+  // director intent engine: "rules" (deterministic) | "llm" (Claude composes
+  // the directive). "llm" falls back to "rules" if no ANTHROPIC_API_KEY.
+  director: (process.env.DIRECTOR || "rules").toLowerCase(),
+
+  // --- moderation ---
+  // LLM safety layer: "off" (regex/rate-limit only) | "anthropic"
+  moderationLLM: (process.env.MODERATION_LLM || "off").toLowerCase(),
+  anthropicKey: process.env.ANTHROPIC_API_KEY || "",
+  anthropicModel: process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001",
+  ratePerMin: num(process.env.RATE_LIMIT_PER_MIN, 4), // msgs/user/60s before throttle
+
+  // --- director arbitration ---
+  globalCooldownMs: num(process.env.GLOBAL_COOLDOWN_MS, 2500), // min gap between any 2 applied directives
+  heavyCooldownMs: num(process.env.HEAVY_COOLDOWN_MS, 12000),  // min gap for theme/headline changes
+
+  // --- YouTube source (only needed when source=youtube) ---
+  yt: {
+    liveChatId: process.env.YT_LIVE_CHAT_ID || "",
+    accessToken: process.env.YT_ACCESS_TOKEN || "", // short-lived OAuth token (see docs/phase1.md)
+  },
+
+  // --- run control ---
+  maxEvents: num(process.env.MAX_EVENTS, 0), // 0 = run until killed; >0 = stop after N source events (demo)
+  simIntervalMs: num(process.env.SIM_INTERVAL_MS, 1800),
+  auditLog: process.env.AUDIT_LOG || "./control/audit.log",
+};

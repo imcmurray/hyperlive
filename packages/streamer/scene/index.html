@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=1280, height=720" />
+    <title>Hyperframes Live — Scene</title>
+
+    <!--
+      HyperFrames-style authoring: a fixed-size #stage, plain HTML + CSS, GSAP
+      timelines. The live (captured) surface is mutated in real time via the
+      SceneAPI (scene.js) — only through validated {action, params}, never raw
+      markup. Visual model: layered depth + cinematic overlays, kept lightweight
+      for software rendering (no GPU, no big blur filters, no WebGL).
+    -->
+    <link rel="stylesheet" href="/styles.css" />
+    <!-- GSAP vendored locally so a 24/7 stream never depends on a CDN. -->
+    <script src="/vendor/gsap.min.js"></script>
+  </head>
+
+  <body class="theme-synthwave">
+    <div
+      id="stage"
+      data-composition-id="live-spike"
+      data-width="1280"
+      data-height="720"
+    >
+      <!-- ====== background: double-buffered for crossfade transitions ====== -->
+      <div id="bg" aria-hidden="true">
+        <!-- active layer -->
+        <div class="bg-layer theme-synthwave" id="bg-a">
+          <div class="bg-base"></div>
+          <span class="aura aura-1"></span>
+          <span class="aura aura-2"></span>
+          <span class="aura aura-3"></span>
+          <div class="bg-grid"></div>
+        </div>
+        <!-- incoming layer (hidden until a transition) -->
+        <div class="bg-layer is-hidden" id="bg-b">
+          <div class="bg-base"></div>
+          <span class="aura aura-1"></span>
+          <span class="aura aura-2"></span>
+          <span class="aura aura-3"></span>
+          <div class="bg-grid"></div>
+        </div>
+
+        <!-- toggleable effects (default off; decor children built in scene.js) -->
+        <div id="fx-grid" class="fx is-off"><div class="grid-plane"></div></div>
+        <div id="fx-sweep" class="fx is-off"></div>
+        <div id="fx-fog" class="fx is-off"></div>
+        <div id="fx-bokeh" class="fx is-off"></div>
+        <div id="fx-dust" class="fx is-off"></div>
+        <div id="fx-rays" class="fx is-off"></div>
+        <canvas id="fx-datarain" class="fx is-off" width="1280" height="720"></canvas>
+        <canvas id="fx-particles" class="fx is-off" width="1280" height="720"></canvas>
+        <div id="fx-lightning" class="fx is-off"></div>
+        <div id="fx-sparks" class="fx is-off"></div>
+        <div id="fx-ripple" class="fx is-off"></div>
+      </div>
+
+      <!-- ====== content ====== -->
+      <main id="content">
+        <div id="kicker">HYPERFRAMES&nbsp;LIVE</div>
+        <h1 id="headline"><span id="headline-inner">Premium Scene — Live</span></h1>
+        <p id="subhead">Layered depth, smooth theme crossfades, lightweight effects.</p>
+      </main>
+
+      <!-- shoutout cards mount here -->
+      <div id="shoutouts"></div>
+
+      <!-- audio-style equalizer (toggle; bars built in scene.js) -->
+      <div id="fx-bars" class="fx is-off"></div>
+
+      <!-- bottom rotating cards (replaces the scrolling ticker; built in scene.js) -->
+      <div id="ticker-cards"></div>
+
+      <!-- ====== cinematic overlays (default on) ====== -->
+      <div id="overlays" aria-hidden="true">
+        <div class="ovl ovl-grain"></div>
+        <div class="ovl ovl-scanlines"></div>
+        <div class="ovl ovl-chroma is-off"></div>
+        <div class="ovl ovl-holoscan is-off"></div>
+        <div class="ovl ovl-filmburn is-off"></div>
+        <div class="ovl ovl-vignette"></div>
+      </div>
+
+      <!-- status chip -->
+      <div id="status" data-show="true">booting…</div>
+
+      <!-- CPU-rendering performance warning (shown only on GPU fallback) -->
+      <div id="render-warning" data-show="false">
+        ⚠ CPU RENDERING — GPU not detected; performance is limited
+      </div>
+    </div>
+
+    <script src="/scene.js"></script>
+  </body>
+</html>

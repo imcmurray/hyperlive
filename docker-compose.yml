@@ -1,0 +1,24 @@
+# Phase 0 transport spike.
+#   docker compose up --build
+# Reads secrets/config from .env (copy .env.example → .env first).
+services:
+  streamer:
+    build:
+      context: ./packages/streamer
+    env_file: .env
+    init: true
+    # Chromium is happier with more shared memory even with --disable-dev-shm-usage
+    shm_size: "1gb"
+    # Intel iGPU passthrough for GPU rendering (CAPTURE=screencast). renderD128
+    # is the Intel device; 987 is the host 'render' group gid (getent group render).
+    devices:
+      - "/dev/dri/renderD128:/dev/dri/renderD128"
+    group_add:
+      - "987"
+    ports:
+      - "${CONTROL_PORT:-8080}:${CONTROL_PORT:-8080}"
+    volumes:
+      # write JSON here to drive the live scene (file-watch trigger)
+      - ./control:/app/control
+    restart: unless-stopped
+    stop_grace_period: 10s

@@ -1,0 +1,13 @@
+{
+  "name": "@hyperlive/ingest",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Phase 1: comment source (simulator or YouTube live chat) → moderation gate → director → /mutate. Runs on Node built-ins; LLM moderation and real YouTube polling are optional.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "sim": "SOURCE=simulate node src/index.js"
+  },
+  "engines": { "node": ">=20" }
+}
