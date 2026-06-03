@@ -73,7 +73,9 @@
     if (!el) return;
     el.dataset.show = on ? "true" : "false";
   }
-  // re-render the option rows; bar fill is proportional to the current leader
+  // Render/update the option rows IN PLACE keyed by theme, so a round's locked
+  // options keep stable rows — only counts, bars, and the leader highlight
+  // change (bars tween from their current width, never rebuild from 0).
   function renderVoteOptions(options, leaderKey) {
     const wrap = $("#vote-options");
     if (!wrap) return;
@@ -81,26 +83,41 @@
       .filter((o) => o && THEMES.includes(o.key))
       .slice(0, 3); // a vote shows at most 3 options (engine guarantees at least 2)
     const max = Math.max(1, ...opts.map((o) => Number(o.votes) || 0));
-    wrap.innerHTML = "";
+    const seen = new Set();
     for (const o of opts) {
       const votes = Math.max(0, Math.round(Number(o.votes) || 0));
-      const row = document.createElement("div");
-      row.className = "vote-opt" + (o.key === leaderKey ? " leader" : "");
-      const name = document.createElement("span");
-      name.className = "vote-name";
-      name.textContent = clean(o.label || o.key, 18);
-      const count = document.createElement("span");
-      count.className = "vote-count";
-      count.textContent = String(votes);
-      const bar = document.createElement("div");
-      bar.className = "vote-opt-bar";
-      const fill = document.createElement("i");
       const pct = Math.round((votes / max) * 100);
-      if (gsap) gsap.to(fill, { width: pct + "%", duration: 0.45, ease: "power2.out" });
-      else fill.style.width = pct + "%";
-      bar.appendChild(fill);
-      row.append(name, count, bar);
-      wrap.appendChild(row);
+      seen.add(o.key);
+      let row = wrap.querySelector('.vote-opt[data-key="' + o.key + '"]');
+      if (!row) {
+        row = document.createElement("div");
+        row.className = "vote-opt";
+        row.dataset.key = o.key;
+        const name = document.createElement("span");
+        name.className = "vote-name";
+        name.textContent = clean(o.label || o.key, 18);
+        const count = document.createElement("span");
+        count.className = "vote-count";
+        const bar = document.createElement("div");
+        bar.className = "vote-opt-bar";
+        const fill = document.createElement("i");
+        fill.style.width = "0%";
+        bar.appendChild(fill);
+        row.append(name, count, bar);
+        wrap.appendChild(row);
+      }
+      row.classList.toggle("leader", o.key === leaderKey);
+      const count = row.querySelector(".vote-count");
+      if (count) count.textContent = String(votes);
+      const fill = row.querySelector(".vote-opt-bar i");
+      if (fill) {
+        if (gsap) gsap.to(fill, { width: pct + "%", duration: 0.45, ease: "power2.out", overwrite: "auto" });
+        else fill.style.width = pct + "%";
+      }
+    }
+    // drop any stale rows (locked rounds won't hit this; defensive across rounds)
+    for (const row of Array.from(wrap.querySelectorAll(".vote-opt"))) {
+      if (!seen.has(row.dataset.key)) row.remove();
     }
   }
 
@@ -867,6 +884,8 @@
       if (title) title.textContent = clean(p.title, 28) || "VOTE THE NEXT THEME";
       if (voteHideTl) { voteHideTl.kill(); voteHideTl = null; }
       el.classList.remove("vote-won");
+      const wrap = $("#vote-options"); // fresh slate per round (clears the prior round's rows)
+      if (wrap) wrap.innerHTML = "";
       renderVoteOptions(p.options, p.leader);
       voteShow(true);
       if (gsap) {

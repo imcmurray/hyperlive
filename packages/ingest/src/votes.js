@@ -57,37 +57,42 @@ export function createVotes({ postMutate, log = () => {} }) {
     return pool[(Math.random() * pool.length) | 0];
   };
 
-  // A vote always shows between MIN and MAX options: at least 2 (pad with the
-  // round's fixed challenger so a lone first ballot isn't a 1-horse race), at
-  // most 3 (the top contenders). The filler is fixed per round so it can't
-  // flicker, and it drops the moment a real 2nd theme gets a ballot.
+  // The candidate set is LOCKED when a round opens (first ballot + random
+  // challenger[s] → 2 or 3 fixed options, in a fixed display order). New themes
+  // voted mid-round are consumed but ignored — they can't appear or win — so the
+  // ballot people see at the start is exactly the ballot that resolves.
   const MIN_OPTS = 2;
   const MAX_OPTS = 3;
+
+  // current tallies in the round's locked candidate order (rows never reorder)
   function options() {
     const counts = new Map();
     for (const t of round.ballots.values()) counts.set(t, (counts.get(t) || 0) + 1);
-    const opts = [...counts.entries()]
-      .map(([key, votes]) => ({ key, label: LABELS[key] || key, votes }))
-      .sort((a, b) => b.votes - a.votes || a.key.localeCompare(b.key));
-    if (opts.length < MIN_OPTS && round.filler && !counts.has(round.filler)) {
-      opts.push({ key: round.filler, label: LABELS[round.filler] || round.filler, votes: 0 });
-    }
-    return opts.slice(0, MAX_OPTS);
+    return round.candidates.map((key) => ({ key, label: LABELS[key] || key, votes: counts.get(key) || 0 }));
+  }
+  // highest-voted candidate; ties keep the earlier (opener-first) candidate
+  function leader(opts) {
+    let best = opts[0];
+    for (const o of opts) if (o.votes > best.votes) best = o;
+    return best;
   }
 
   function pushUpdate() {
     const opts = options();
-    postMutate({ action: "voteUpdate", params: { options: opts, leader: opts[0]?.key || null } })
-      .catch(() => {});
+    postMutate({ action: "voteUpdate", params: { options: opts, leader: leader(opts).key } }).catch(() => {});
   }
 
   function startRound(firstTheme, firstAuthor) {
-    round = { ballots: new Map([[firstAuthor, firstTheme]]), filler: pickFiller([firstTheme]), timer: null, lastPush: 0 };
+    // lock 2-3 candidates up front: the opener's theme + random distinct challengers
+    const target = MIN_OPTS + ((Math.random() * (MAX_OPTS - MIN_OPTS + 1)) | 0); // 2 or 3
+    const candidates = [firstTheme];
+    while (candidates.length < target) candidates.push(pickFiller(candidates));
+    round = { candidates, ballots: new Map([[firstAuthor, firstTheme]]), timer: null, lastPush: 0 };
     const opts = options();
     postMutate({ action: "voteStart", params: { title: "VOTE THE NEXT THEME", options: opts, leader: firstTheme, durationMs } })
       .catch(() => {});
     round.timer = setTimeout(endRound, durationMs);
-    log(`  ⚑ vote round OPEN (${durationMs / 1000}s) — first ballot: ${firstTheme}`);
+    log(`  ⚑ vote round OPEN (${durationMs / 1000}s) — options LOCKED: ${candidates.join(", ")}`);
   }
 
   function endRound() {
@@ -95,8 +100,7 @@ export function createVotes({ postMutate, log = () => {} }) {
     const opts = options();
     round = null;
     cooldownUntil = Date.now() + cooldownMs;
-    if (!opts.length) { postMutate({ action: "voteEnd", params: {} }).catch(() => {}); return; }
-    const winner = opts[0];
+    const winner = leader(opts);
     log(`  ⚑ vote WON: ${winner.key} (${winner.votes} vote${winner.votes === 1 ? "" : "s"})`);
     postMutate({ action: "voteEnd", params: { winner: winner.key, winnerLabel: winner.label, votes: winner.votes, options: opts } })
       .catch(() => {});
@@ -112,9 +116,13 @@ export function createVotes({ postMutate, log = () => {} }) {
       if (!theme) return null;
       const author = comment.author || "anon";
       if (round) {
-        round.ballots.set(author, theme); // last vote wins; spamming can't stuff the ballot
-        const now = Date.now();
-        if (now - round.lastPush > 350) { round.lastPush = now; pushUpdate(); }
+        // only the locked options count; a ballot for any other theme is still
+        // consumed (never shown as chat) but does not change the ballot
+        if (round.candidates.includes(theme)) {
+          round.ballots.set(author, theme); // last vote wins; spamming can't stuff the ballot
+          const now = Date.now();
+          if (now - round.lastPush > 350) { round.lastPush = now; pushUpdate(); }
+        }
       } else if (Date.now() >= cooldownUntil) {
         startRound(theme, author);
       } // else: brief post-round cooldown — ballot is still consumed, just ignored
