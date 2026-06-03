@@ -48,6 +48,21 @@
     if (el) el.dataset.show = on ? "true" : "false";
   }
 
+  // the subtle "current vibe" chip (Mood Engine descriptor), fade-swapped
+  function showVibe(text) {
+    const el = $("#vibe");
+    if (!el) return;
+    const t = clean(text, 48);
+    if (!t) { el.dataset.show = "false"; return; }
+    el.dataset.show = "true";
+    if (!gsap) { el.textContent = t; return; }
+    gsap.killTweensOf(el, "opacity,y");
+    gsap.to(el, { opacity: 0, y: -6, duration: 0.25, ease: "power2.in", onComplete: () => {
+      el.textContent = t;
+      gsap.fromTo(el, { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" });
+    } });
+  }
+
   // ---- background crossfade state -----------------------------------------
   const layers = [$("#bg-a"), $("#bg-b")];
   let active = 0;            // index of the visible layer
@@ -56,6 +71,13 @@
 
   // ---- particle field (canvas, only runs while enabled) -------------------
   const particles = { canvas: null, ctx: null, items: [], on: false, raf: 0, rgb: "182,255,94" };
+
+  // ---- live intensity (0..1): a single eased scalar the render loops read
+  // each frame, so "energy" changes drift smoothly with no re-seed pops. Driven
+  // by setIntensity / setMood (the Collective Mood Engine). ---------------------
+  const intensity = { v: 0.5 };
+  let ambientBurstTimer = null; // setMood's gentle recurring burst scheduler
+  const moodFxOn = {};          // last on/off the mood engine set per effect (hysteresis)
 
   function hexToRgb(hex) {
     const m = String(hex).trim().match(/^#?([0-9a-f]{6})$/i);
@@ -69,7 +91,7 @@
   }
   function seedParticles() {
     const W = 1280, H = 720;
-    particles.items = Array.from({ length: 60 }, () => ({
+    particles.items = Array.from({ length: 80 }, () => ({ // pool; how many draw scales with intensity
       x: Math.random() * W,
       y: Math.random() * H,
       r: 0.6 + Math.random() * 2,
@@ -83,8 +105,12 @@
     if (!particles.on || !particles.ctx) return;
     const { ctx } = particles, W = 1280, H = 720;
     ctx.clearRect(0, 0, W, H);
-    for (const p of particles.items) {
-      p.y -= p.vy;
+    // intensity drives both how many particles draw and how fast they rise
+    const activeN = Math.round(18 + intensity.v * 62);   // 18..80
+    const vMul = 0.5 + intensity.v * 1.3;                 // 0.5..1.8
+    for (let i = 0; i < activeN && i < particles.items.length; i++) {
+      const p = particles.items[i];
+      p.y -= p.vy * vMul;
       p.ph += 0.01;
       p.x += Math.sin(p.ph) * 0.3 + p.drift;
       if (p.y < -4) { p.y = H + 4; p.x = Math.random() * W; }
@@ -158,7 +184,7 @@
     for (const col of rain.cols) {
       const ch = GLYPHS[(Math.random() * GLYPHS.length) | 0];
       ctx.fillText(ch, col.x, col.y);
-      col.y += col.sp;
+      col.y += col.sp * (0.6 + intensity.v); // intensity speeds the fall
       if (col.y > 740) { col.y = Math.random() * -200; col.sp = 6 + Math.random() * 10; }
     }
     rain.raf = requestAnimationFrame(tickRain);
@@ -220,7 +246,11 @@
     if (host) host.classList.toggle("is-off", !on);
     if (!on || !gsap) return;
     const [lo, hi] = PERIODIC_GAP[effect];
-    const loop = () => { PERIODIC_FN[effect](); periodicTimers[effect] = gsap.delayedCall(lo + Math.random() * (hi - lo), loop); };
+    const loop = () => {
+      PERIODIC_FN[effect]();
+      const scale = Math.max(0.4, 1.5 - intensity.v); // higher intensity → shorter gaps (more frequent)
+      periodicTimers[effect] = gsap.delayedCall((lo + Math.random() * (hi - lo)) * scale, loop);
+    };
     loop();
   }
   const FX_SEL_PERIODIC = { sparks: "#fx-sparks", lightning: "#fx-lightning", filmburn: ".ovl-filmburn", ripple: "#fx-ripple" };
@@ -258,11 +288,125 @@
     }
   }
 
+  // ---- charming viewer reactions (emoji → instant micro-effects) ----------
+  function reactHost() { return $("#fx-react"); }
+  function floatName(text, x, y, color) {
+    const host = reactHost(); if (!host || !gsap) return;
+    const t = clean(text, 28); if (!t) return;
+    const el = document.createElement("span"); el.className = "react-name";
+    el.textContent = t; el.style.left = x + "px"; el.style.top = y + "px";
+    if (color) el.style.color = color;
+    host.appendChild(el);
+    gsap.fromTo(el, { opacity: 0, y: 6, scale: 0.85 }, { opacity: 1, y: -6, scale: 1, duration: 0.45, ease: "back.out(2)" });
+    gsap.to(el, { opacity: 0, y: -42, duration: 1.5, delay: 1.1, ease: "power1.in", onComplete: () => el.remove() });
+  }
+  // a circular avatar: real profile image, else a deterministic colored-initial circle
+  function avatarColor(name) {
+    let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    return `hsl(${h % 360}, 58%, 46%)`;
+  }
+  // strict: only plain https URLs (no quotes/parens/spaces) — safe for url() interpolation
+  function safeAvatarUrl(u) { return typeof u === "string" && /^https:\/\/[^\s"')<>]+$/i.test(u) ? u : ""; }
+  function avatarEl(who, url, size) {
+    const el = document.createElement("span"); el.className = "avatar";
+    el.style.width = el.style.height = size + "px";
+    const name = (clean(who, 24) || "?").replace(/^@/, "");
+    const safe = safeAvatarUrl(url);
+    if (safe) {
+      const img = document.createElement("img");
+      img.referrerPolicy = "no-referrer"; img.alt = "";
+      img.onerror = () => { img.remove(); el.style.background = avatarColor(name); el.style.fontSize = Math.round(size * 0.45) + "px"; el.textContent = name.charAt(0).toUpperCase(); };
+      img.src = safe; el.appendChild(img);
+    } else {
+      el.style.background = avatarColor(name); el.style.fontSize = Math.round(size * 0.45) + "px";
+      el.textContent = name.charAt(0).toUpperCase();
+    }
+    return el;
+  }
+  function rspark(cx, cy, n, cls, spread, up) {
+    const host = reactHost(); if (!host || !gsap) return;
+    for (let i = 0; i < n; i++) {
+      const s = document.createElement("span"); s.className = "rspark" + (cls ? " " + cls : "");
+      s.style.left = cx + "px"; s.style.top = cy + "px"; host.appendChild(s);
+      const a = Math.random() * Math.PI * 2, d = spread * (0.4 + Math.random());
+      gsap.to(s, { x: Math.cos(a) * d, y: Math.sin(a) * d - (up || 0), opacity: 0, scale: 0.35, duration: 0.7 + Math.random() * 0.5, ease: "power2.out", onComplete: () => s.remove() });
+    }
+  }
+  function spawnFire() { rspark(200 + Math.random() * 880, 280 + Math.random() * 220, 14, "fire", 90, 30); }
+  function spawnHearts(who) {
+    const host = reactHost(); if (!host || !gsap) return;
+    const cx = 220 + Math.random() * 840;
+    for (let i = 0; i < 6; i++) {
+      const h = document.createElement("span"); h.className = "heart"; h.textContent = "❤";
+      h.style.left = (cx + (Math.random() - 0.5) * 150) + "px"; h.style.top = "640px"; host.appendChild(h);
+      gsap.fromTo(h, { opacity: 0, scale: 0.4 }, { opacity: 0.92, scale: 0.7 + Math.random() * 0.6, duration: 0.3, ease: "back.out(2)", delay: i * 0.06 });
+      gsap.to(h, { y: -(240 + Math.random() * 200), x: "+=" + ((Math.random() - 0.5) * 70), opacity: 0, duration: 2.1 + Math.random(), delay: 0.1 + i * 0.06, ease: "power1.out", onComplete: () => h.remove() });
+    }
+    if (who) floatName(who, cx, 600, "#ff8ac0");
+  }
+  function spawnSparkle() {
+    const host = reactHost(); if (!host || !gsap) return;
+    for (let i = 0; i < 9; i++) {
+      const s = document.createElement("span"); s.className = "sparkle"; s.textContent = "✦";
+      s.style.left = (Math.random() * 1180 + 50) + "px"; s.style.top = (Math.random() * 560 + 80) + "px"; host.appendChild(s);
+      gsap.fromTo(s, { opacity: 0, scale: 0, rotation: -30 }, { opacity: 1, scale: 0.6 + Math.random() * 0.8, rotation: 30, duration: 0.35, ease: "back.out(3)", delay: Math.random() * 0.4 });
+      gsap.to(s, { opacity: 0, scale: 0, duration: 0.5, delay: 0.55 + Math.random() * 0.5, ease: "power2.in", onComplete: () => s.remove() });
+    }
+  }
+  const CONFETTI = ["#ff5ec4", "#5ec8ff", "#ffd25e", "#7dff8e", "#b07eff"];
+  function spawnConfetti() {
+    const host = reactHost(); if (!host || !gsap) return;
+    const cx = 220 + Math.random() * 840;
+    for (let i = 0; i < 20; i++) {
+      const c = document.createElement("span"); c.className = "confetti-bit";
+      c.style.background = CONFETTI[i % CONFETTI.length]; c.style.left = cx + "px"; c.style.top = "300px"; host.appendChild(c);
+      const a = Math.random() * Math.PI * 2, d = 60 + Math.random() * 170;
+      gsap.fromTo(c, { opacity: 1, scale: 1 }, { x: Math.cos(a) * d, y: Math.sin(a) * d + 140, rotation: Math.random() * 360, opacity: 0, duration: 1.3 + Math.random() * 0.8, ease: "power1.out", onComplete: () => c.remove() });
+    }
+  }
+  function spawnWelcome(who, url) {
+    const host = reactHost(); if (!host || !gsap) return;
+    const cx = 340 + Math.random() * 600, cy = 230 + Math.random() * 240;
+    const g = document.createElement("span"); g.className = "react-glow"; g.style.left = cx + "px"; g.style.top = cy + "px"; host.appendChild(g);
+    gsap.fromTo(g, { scale: 0.2, opacity: 0.5 }, { scale: 2.4, opacity: 0, duration: 1.7, ease: "power2.out", onComplete: () => g.remove() });
+    rspark(cx, cy, 7, "", 55, 0);
+    // the newcomer's actual avatar pops at the glow center — "the room noticed YOU"
+    const av = avatarEl(who, url, 58);
+    av.style.position = "absolute"; av.style.left = (cx - 29) + "px"; av.style.top = (cy - 29) + "px";
+    host.appendChild(av);
+    gsap.fromTo(av, { scale: 0, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "back.out(2)" });
+    gsap.to(av, { y: -28, opacity: 0, duration: 1.0, delay: 1.7, ease: "power1.in", onComplete: () => av.remove() });
+    floatName(who ? ("welcome, " + who) : "welcome!", cx, cy + 40, "#9affd0");
+  }
+  const REACT_FN = {
+    fire: () => spawnFire(), love: (who) => spawnHearts(who), sparkle: () => spawnSparkle(),
+    laugh: () => spawnConfetti(), wow: () => spawnSparkle(),
+    calm: () => rspark(200 + Math.random() * 880, 300 + Math.random() * 200, 6, "", 40, 0),
+    welcome: (who, url) => spawnWelcome(who, url),
+  };
+
+  // ambient gentle burst scheduler driven by the mood's burst_frequency (0..1)
+  function setBurstRate(rate) {
+    if (ambientBurstTimer) { ambientBurstTimer.kill(); ambientBurstTimer = null; }
+    rate = clampNum(rate, 0, 1, 0);
+    if (rate <= 0.03 || !gsap) return;
+    const schedule = () => {
+      const gap = (10 - rate * 8) + Math.random() * 2; // rate 1 → ~2-4s; rate 0.1 → ~9-11s
+      ambientBurstTimer = gsap.delayedCall(gap, () => { SceneAPI.burst({ intensity: 0.18 + rate * 0.35 }); schedule(); });
+    };
+    schedule();
+  }
+
   // ---- bottom rotating cards (replaces the scrolling ticker) --------------
   // Discrete pop-in / hold / drop-off cards avoid the constant-velocity capture
   // judder a scrolling marquee suffers. Each card carries a progress line that
   // fills over the hold time so viewers see when the next one is coming.
-  let tickerItems = ["stream is live", "themes crossfade smoothly", "effects toggle via directives"];
+  let tickerItems = [
+    "👋 new here? just say hi",
+    "drop a 🔥 — your emojis change the scene",
+    "the whole chat is conducting the visuals",
+    "react with ❤️ ✨ 😂 — try it",
+  ];
   let tickIdx = 0;
   let tickTimer = null;
   const TICK_HOLD = 4.5; // seconds a card stays before it drops off
@@ -453,6 +597,43 @@
       return crossfade(theme, p.duration);
     },
 
+    // Collective Mood Engine: ease the single "energy" scalar (0..1) toward a target
+    setIntensity(p = {}) {
+      const value = clampNum(p.value, 0, 1, 0.5);
+      const dur = clampNum(p.duration, 0, 8, 2.5);
+      if (gsap) { gsap.killTweensOf(intensity, "v"); gsap.to(intensity, { v: value, duration: dur, ease: "sine.inOut", overwrite: "auto" }); }
+      else intensity.v = value;
+      return { value };
+    },
+
+    // composite "vibe" directive emitted by the Mood Conductor once per tick.
+    // Everything eases / rate-limits so the atmosphere DRIFTS, never jars.
+    setMood(p = {}) {
+      const out = {};
+      const dur = clampNum(p.duration, 0.3, 8, 3);
+      if (p.intensity !== undefined) out.intensity = SceneAPI.setIntensity({ value: p.intensity, duration: dur }).value;
+      // theme: crossfade only if different + not mid-transition (engine paces cadence)
+      if (p.theme && THEMES.includes(p.theme) && p.theme !== currentTheme && !transitioning) {
+        crossfade(p.theme, clampNum(p.duration, 0.3, 4, 2));
+        out.theme = p.theme;
+      }
+      // effect emphasis { name: -1..1 } → on/off with hysteresis (no strobing)
+      if (p.effects && typeof p.effects === "object") {
+        out.effects = {};
+        for (const [fx, val] of Object.entries(p.effects)) {
+          if (!EFFECTS.includes(fx)) continue;
+          const e = clampNum(val, -1, 1, 0);
+          const want = moodFxOn[fx] ? e > -0.05 : e > 0.25; // on>0.25, off<-0.05
+          if (want !== !!moodFxOn[fx]) { SceneAPI.setEffect({ effect: fx, on: want, duration: 1.2 }); moodFxOn[fx] = want; out.effects[fx] = want; }
+        }
+      }
+      if (p.burstRate !== undefined) setBurstRate(p.burstRate);
+      if (p.headline) out.headline = SceneAPI.setHeadline({ text: p.headline }).text;
+      if (p.subhead) out.subhead = SceneAPI.setSubhead({ text: p.subhead }).text;
+      if (p.descriptor) { showVibe(p.descriptor); out.descriptor = clean(p.descriptor, 48); }
+      return out;
+    },
+
     setHeadline(p = {}) {
       const text = clean(p.text, 90) || "Hyperframes Live";
       const el = $("#headline-inner");
@@ -523,10 +704,20 @@
 
       const card = document.createElement("div");
       card.className = "shoutout tier-" + tier;
+      // VIP: large-tier supporters get their photo as the card background + a
+      // rainbow border (the border + legibility overlay come from CSS .vip)
+      const vipUrl = tier === "large" ? safeAvatarUrl(p.avatar) : "";
+      if (vipUrl) {
+        card.classList.add("vip");
+        card.style.setProperty("--vip-photo", `url("${vipUrl}")`); // CSS composes photo + rainbow border
+      }
       const accent = document.createElement("span"); accent.className = "accent";
+      const av = avatarEl(who, p.avatar, 42); av.classList.add("sc-avatar");
+      const col = document.createElement("div"); col.className = "sc-col";
       const whoEl = document.createElement("div"); whoEl.className = "who"; whoEl.textContent = who.toUpperCase();
       const msgEl = document.createElement("div"); msgEl.className = "msg"; msgEl.textContent = msg;
-      card.append(accent, whoEl, msgEl);
+      col.append(whoEl, msgEl);
+      card.append(accent, av, col);
       wrap.prepend(card);
 
       const hold = { small: 8, medium: 16, large: 30 }[tier];
@@ -603,6 +794,26 @@
       if (mode === "cpu") { document.body.classList.add("lite-render"); showWarning(true); }
       else { document.body.classList.remove("lite-render"); showWarning(false); }
       return { mode, fps };
+    },
+
+    // charming instant viewer reaction (emoji → micro-effect). who: optional name
+    react(p = {}) {
+      const kind = String(p.kind || "");
+      const who = p.who ? clean(p.who, 24) : "";
+      const avatar = typeof p.avatar === "string" && /^https:\/\//i.test(p.avatar) ? p.avatar : "";
+      const fn = REACT_FN[kind];
+      if (!fn) return { ok: false, kind };
+      if (kind === "fire" || kind === "wow") SceneAPI.burst({ intensity: kind === "wow" ? 0.5 : 0.28 });
+      fn(who, avatar);
+      return { ok: true, kind, who };
+    },
+
+    // show the typed→on-scene latency readout (seconds)
+    setDelay(p = {}) {
+      const ms = clampNum(p.ms, 0, 600000, 0);
+      const el = $("#latency");
+      if (el) { el.textContent = "delay " + (ms / 1000).toFixed(1) + "s"; el.dataset.show = "true"; }
+      return { ms };
     },
 
     // show/hide the CPU-rendering warning banner (operator can dismiss it)

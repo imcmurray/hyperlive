@@ -7,11 +7,16 @@ import path from "node:path";
 import { config } from "./config.js";
 import { createModerator } from "./moderation.js";
 import { createDirector } from "./director.js";
-import { simulatorSource } from "./simulator.js";
+import { createMoodState } from "./mood-state.js";
+import { createMoodEngine } from "./mood.js";
+import { createReactions } from "./reactions.js";
+import { simulatorSource, liveSimulatorSource } from "./simulator.js";
 import { youtubeSource } from "./youtube.js";
 
 const moderator = createModerator();
 const director = createDirector();
+const moodState = createMoodState({ windowMs: config.moodWindowMs });
+const reactions = createReactions({ postMutate, log: console.log });
 
 let processed = 0;
 let applied = 0;
@@ -37,6 +42,16 @@ async function postMutate(directive) {
   return res.json();
 }
 
+// throttled "typed → on-scene" latency readout (excludes YouTube's broadcast buffer)
+let lastDelayAt = 0;
+function reportDelay(comment) {
+  if (!config.showDelay || !comment.ts) return;
+  const now = Date.now();
+  if (now - lastDelayAt < 900) return; // it's a readout, not every event
+  lastDelayAt = now;
+  postMutate({ action: "setDelay", params: { ms: Math.max(0, now - comment.ts) } }).catch(() => {});
+}
+
 async function handle(comment) {
   processed += 1;
 
@@ -48,15 +63,27 @@ async function handle(comment) {
     return;
   }
 
+  // feed the Collective Mood Engine (only moderated comments reach the aggregate)
+  moodState.record(comment);
+
+  // Fun Layer: instant emoji reactions + first-time welcome (parallel to the
+  // director, no cooldown — meant to feel immediate)
+  const fired = config.reactions ? await reactions.handle(comment).catch(() => []) : [];
+
   const dec = await director.decide(comment);
   if (dec.skip) {
     console.log(`  · skip  [${dec.skip}] ${comment.author}: ${comment.text}`);
+    if (fired.length) reportDelay(comment); // a reaction still landed on screen
     await audit({ stage: "skipped", comment, reason: dec.skip });
     return;
   }
 
+  // attach the viewer's avatar to shoutout cards (works for rules + LLM director)
+  if (dec.directive.action === "addShoutout" && comment.avatar) dec.directive.params.avatar = comment.avatar;
+
   try {
     const out = await postMutate(dec.directive);
+    reportDelay(comment);
     applied += 1;
     const p = dec.directive.params || {};
     const detail = p.theme || p.text || (p.tier ? `${p.tier} shoutout` : "") || "";
@@ -74,9 +101,16 @@ async function main() {
   console.log(`[ingest] moderation: rate=${config.ratePerMin}/min, blocklist=on, llm=${config.moderationLLM}`);
   if (config.maxEvents) console.log(`[ingest] demo mode: stopping after ${config.maxEvents} events`);
 
-  const source = config.source === "youtube" ? youtubeSource() : simulatorSource();
+  const source = config.source === "youtube" ? youtubeSource()
+    : config.source === "live" ? liveSimulatorSource() // endless lifelike crowd
+    : simulatorSource();
+
+  // Collective Mood Engine: periodic aggregate loop alongside the per-comment loop
+  const moodEngine = config.mood ? createMoodEngine({ state: moodState, postMutate, log: console.log }) : null;
+  if (moodEngine) moodEngine.start();
 
   process.on("SIGINT", () => {
+    if (moodEngine) moodEngine.stop();
     console.log(`\n[ingest] stopping. processed=${processed} applied=${applied} blocked=${blocked}`);
     process.exit(0);
   });

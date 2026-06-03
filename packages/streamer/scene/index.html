@@ -83,8 +83,17 @@
         <div class="ovl ovl-vignette"></div>
       </div>
 
+      <!-- charming viewer reactions (emoji micro-effects) pop in here -->
+      <div id="fx-react" aria-hidden="true"></div>
+
       <!-- status chip -->
       <div id="status" data-show="true">booting…</div>
+
+      <!-- typed→on-scene latency readout (top-left) -->
+      <div id="latency" data-show="false"></div>
+
+      <!-- subtle "current vibe" chip — the Collective Mood Engine's descriptor -->
+      <div id="vibe" data-show="false"></div>
 
       <!-- CPU-rendering performance warning (shown only on GPU fallback) -->
       <div id="render-warning" data-show="false">

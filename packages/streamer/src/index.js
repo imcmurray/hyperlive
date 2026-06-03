@@ -24,6 +24,10 @@ const ALLOWED_ACTIONS = new Set([
   "burst",
   "setEffect",
   "setTicker",
+  "setIntensity",
+  "setMood",
+  "react",
+  "setDelay",
   "renderWarning",
   "status",
 ]);

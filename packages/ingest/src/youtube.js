@@ -11,13 +11,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function toComment(item) {
   const s = item.snippet || {};
-  const author = item.authorDetails?.displayName || "viewer";
+  const a = item.authorDetails || {};
+  const author = a.displayName || "viewer";
   // Super Chat / Super Sticker surface here in the SAME feed
   const sc = s.superChatDetails || s.superStickerDetails;
   return {
     id: item.id,
     author,
     text: s.displayMessage || sc?.userComment || "",
+    avatar: a.profileImageUrl || "",       // the viewer's actual avatar
+    ts: Date.parse(s.publishedAt) || Date.now(), // when they actually typed it
     superchat: sc ? { ytTier: sc.tier, amount: sc.amountDisplayString } : undefined,
   };
 }

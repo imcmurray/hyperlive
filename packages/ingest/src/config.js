@@ -23,6 +23,17 @@ export const config = {
   globalCooldownMs: num(process.env.GLOBAL_COOLDOWN_MS, 2500), // min gap between any 2 applied directives
   heavyCooldownMs: num(process.env.HEAVY_COOLDOWN_MS, 12000),  // min gap for theme/headline changes
 
+  // --- Collective Mood Engine (the periodic aggregate "Mood Conductor" loop) ---
+  mood: (process.env.MOOD || "on").toLowerCase() !== "off", // on by default
+  moodTickMs: num(process.env.MOOD_TICK_MS, 7000),          // how often the Conductor recomputes
+  moodWindowMs: num(process.env.MOOD_WINDOW_MS, 75000),     // rolling aggregate window
+  moodLLM: ["on", "anthropic", "true"].includes((process.env.MOOD_LLM || "off").toLowerCase()), // else rules-based
+
+  // --- Fun Layer: instant emoji reactions + first-time welcome ---
+  reactions: (process.env.REACTIONS || "on").toLowerCase() !== "off",
+  // on-screen "typed → on-scene" latency readout
+  showDelay: (process.env.SHOW_DELAY || "on").toLowerCase() !== "off",
+
   // --- YouTube source (only needed when source=youtube) ---
   yt: {
     liveChatId: process.env.YT_LIVE_CHAT_ID || "",

@@ -317,13 +317,16 @@ html, body {
 }
 .shoutout {
   position: relative; width: 100%; overflow: hidden;
-  border-radius: 16px; padding: 16px 20px 16px 24px;
+  display: flex; align-items: center; gap: 12px;
+  border-radius: 16px; padding: 14px 20px 14px 24px;
   background: linear-gradient(135deg, rgba(16,12,32,0.82), rgba(10,8,22,0.72));
   border: 1px solid rgba(255,255,255,0.12);
   box-shadow: 0 14px 44px rgba(0,0,0,0.5);
   will-change: transform, opacity;
 }
 .shoutout .accent { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c3); }
+.shoutout .sc-avatar { width: 42px; height: 42px; }
+.shoutout .sc-col { display: flex; flex-direction: column; min-width: 0; }
 .shoutout .who { font-size: 14px; font-weight: 700; letter-spacing: 0.08em; opacity: 0.72; }
 .shoutout .msg { font-size: 20px; font-weight: 600; margin-top: 4px; }
 .shoutout.tier-small  .accent { background: var(--c3); }
@@ -334,6 +337,25 @@ html, body {
   background: linear-gradient(135deg, rgba(60,10,48,0.9), rgba(20,8,60,0.86));
 }
 .shoutout.tier-large .accent { width: 6px; background: linear-gradient(var(--c1), var(--c3)); }
+
+/* VIP: large supporter's photo as the card background + animated rainbow border.
+   Dual-background gradient-border: photo (padding-box, center) layered over the
+   rainbow (border-box, full) → rainbow shows ONLY in the 3px transparent border. */
+@property --vip-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+@keyframes vipspin { to { --vip-angle: 360deg; } }
+.shoutout.vip {
+  border: 3px solid transparent;
+  background:
+    linear-gradient(135deg, rgba(8,6,18,0.62), rgba(8,6,18,0.82)) padding-box,
+    var(--vip-photo, none) center / cover no-repeat padding-box,
+    conic-gradient(from var(--vip-angle),
+      #ff2e97, #ffd166, #19f59c, #16d6ff, #7a2bff, #ff2e97) border-box;
+  animation: vipspin 4s linear infinite;
+}
+.shoutout.vip .accent { display: none; }
+.shoutout.vip .sc-avatar { display: none; }   /* the whole card IS their photo */
+.shoutout.vip .who { opacity: 0.95; }
+.shoutout.vip .who, .shoutout.vip .msg { text-shadow: 0 1px 6px rgba(0,0,0,0.95); }
 
 /* ==================== bottom rotating cards ============================= */
 #ticker-cards {
@@ -386,6 +408,50 @@ html, body {
   background: rgba(0,0,0,0.5); color: #9affd0; border: 1px solid rgba(154,255,208,0.3);
 }
 #status[data-show="false"] { display: none; }
+
+/* charming viewer reactions (emoji micro-effects) — pop in front of content */
+#fx-react { position: absolute; inset: 0; z-index: 8; pointer-events: none; overflow: hidden; }
+#fx-react .heart { position: absolute; font-size: 26px; color: #ff5e9c; text-shadow: 0 0 12px #ff5e9c; will-change: transform, opacity; }
+#fx-react .sparkle { position: absolute; font-size: 20px; color: var(--c3); text-shadow: 0 0 10px var(--c3); will-change: transform, opacity; }
+#fx-react .confetti-bit { position: absolute; width: 8px; height: 8px; border-radius: 2px; will-change: transform, opacity; }
+#fx-react .rspark { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--c3); box-shadow: 0 0 9px var(--c3); will-change: transform, opacity; }
+#fx-react .rspark.fire { background: #ff9a3c; box-shadow: 0 0 10px #ff6a1c; }
+#fx-react .react-name {
+  position: absolute; font-size: 16px; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--c3); text-shadow: 0 0 12px rgba(0,0,0,0.7); white-space: nowrap; will-change: transform, opacity;
+}
+#fx-react .react-glow {
+  position: absolute; width: 180px; height: 180px; margin: -90px 0 0 -90px; border-radius: 50%;
+  background: radial-gradient(circle, var(--c3), transparent 68%); will-change: transform, opacity;
+}
+
+/* typed→on-scene latency readout (top-left, quiet) */
+#latency {
+  position: absolute; left: 16px; top: 16px; z-index: 9;
+  font-size: 12px; font-family: "Liberation Mono", monospace;
+  padding: 4px 10px; border-radius: 6px;
+  background: rgba(0,0,0,0.45); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.12);
+}
+#latency[data-show="false"] { display: none; }
+
+/* viewer avatars (real profile pic, or a deterministic colored-initial fallback) */
+.avatar {
+  border-radius: 50%; overflow: hidden; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 800; color: #fff; line-height: 1;
+  border: 2px solid rgba(255,255,255,0.75); box-shadow: 0 2px 14px rgba(0,0,0,0.5);
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* "current vibe" chip — quiet, glowing, lower-left mood caption */
+#vibe {
+  position: absolute; left: 96px; bottom: 96px; z-index: 6;
+  font-size: 15px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--c3); opacity: 0.85; white-space: nowrap;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--c3) 45%, transparent);
+}
+#vibe::before { content: "◆ "; opacity: 0.7; }
+#vibe[data-show="false"] { display: none; }
 
 /* CPU fallback ("lite") — drop the expensive blend modes to keep fps up */
 body.lite-render .aura { mix-blend-mode: normal; }
