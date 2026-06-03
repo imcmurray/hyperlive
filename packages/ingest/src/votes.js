@@ -52,13 +52,27 @@ export function createVotes({ postMutate, log = () => {} }) {
   let round = null;          // { ballots: Map<author,theme>, timer, lastPush }
   let cooldownUntil = 0;
 
-  function options(limit = 5) {
+  const pickFiller = (exclude) => {
+    const pool = THEMES.filter((t) => !exclude.includes(t));
+    return pool[(Math.random() * pool.length) | 0];
+  };
+
+  // A vote always shows between MIN and MAX options: at least 2 (pad with the
+  // round's fixed challenger so a lone first ballot isn't a 1-horse race), at
+  // most 3 (the top contenders). The filler is fixed per round so it can't
+  // flicker, and it drops the moment a real 2nd theme gets a ballot.
+  const MIN_OPTS = 2;
+  const MAX_OPTS = 3;
+  function options() {
     const counts = new Map();
     for (const t of round.ballots.values()) counts.set(t, (counts.get(t) || 0) + 1);
-    return [...counts.entries()]
+    const opts = [...counts.entries()]
       .map(([key, votes]) => ({ key, label: LABELS[key] || key, votes }))
-      .sort((a, b) => b.votes - a.votes || a.key.localeCompare(b.key))
-      .slice(0, limit);
+      .sort((a, b) => b.votes - a.votes || a.key.localeCompare(b.key));
+    if (opts.length < MIN_OPTS && round.filler && !counts.has(round.filler)) {
+      opts.push({ key: round.filler, label: LABELS[round.filler] || round.filler, votes: 0 });
+    }
+    return opts.slice(0, MAX_OPTS);
   }
 
   function pushUpdate() {
@@ -68,7 +82,7 @@ export function createVotes({ postMutate, log = () => {} }) {
   }
 
   function startRound(firstTheme, firstAuthor) {
-    round = { ballots: new Map([[firstAuthor, firstTheme]]), timer: null, lastPush: 0 };
+    round = { ballots: new Map([[firstAuthor, firstTheme]]), filler: pickFiller([firstTheme]), timer: null, lastPush: 0 };
     const opts = options();
     postMutate({ action: "voteStart", params: { title: "VOTE THE NEXT THEME", options: opts, leader: firstTheme, durationMs } })
       .catch(() => {});

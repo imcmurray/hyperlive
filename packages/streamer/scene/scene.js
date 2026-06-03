@@ -79,7 +79,7 @@
     if (!wrap) return;
     const opts = (Array.isArray(options) ? options : [])
       .filter((o) => o && THEMES.includes(o.key))
-      .slice(0, 5);
+      .slice(0, 3); // a vote shows at most 3 options (engine guarantees at least 2)
     const max = Math.max(1, ...opts.map((o) => Number(o.votes) || 0));
     wrap.innerHTML = "";
     for (const o of opts) {
