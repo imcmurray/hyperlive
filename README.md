@@ -67,4 +67,19 @@ docs/phase0.md   transport spike walkthrough
 scripts/         mutate.sh / mutate-file.sh helpers
 ```
 
+## Credits & acknowledgements
+
+HyperLive was inspired by and bootstrapped from
+**[HyperFrames](https://github.com/heygen-com/hyperframes)** by
+[HeyGen](https://github.com/heygen-com) — an open-source, agent-friendly
+framework for turning HTML + CSS + animations into deterministic MP4 videos
+("Write HTML. Render video. Built for agents."). HyperLive borrows its
+HTML-first authoring model and component sensibility, then takes the idea in a
+different direction: **live, real-time, chat-driven streaming** instead of
+deterministic offline rendering.
+
+Huge thanks to the HyperFrames authors for the foundation. ❤️
+
+---
+
 License: Apache-2.0 (matching upstream HyperFrames).
