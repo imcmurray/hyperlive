@@ -7,8 +7,9 @@
 #   scripts/live.sh restart   # stop + start
 #   scripts/live.sh status    # is it running? + stream health + now-playing
 #   scripts/live.sh logs      # tail the ingest log
-#   scripts/live.sh queue URL # operator: queue a Suno song directly (no chat)
-#   scripts/live.sh skip      # operator: skip the current song
+#   scripts/live.sh now       # what's playing (title/artist/cover/likes/queue)
+#   scripts/live.sh queue URL # operator: queue a Suno song directly (shows cover)
+#   scripts/live.sh next      # operator: move onto the next song (alias: skip)
 #
 # It runs SOURCE=youtube; OAuth creds + tunables come from .env (see
 # docs/youtube-oauth.md). Override any of these via the environment:
@@ -65,19 +66,61 @@ status() {
   if [ -n "$p" ]; then echo "[live] RUNNING (pid $p)"; else echo "[live] NOT running"; fi
   grep -iE 'source=|connected|resumed' "$LOG" 2>/dev/null | tail -2
   printf '[stream] '; curl -s "$CONTROL/health" 2>/dev/null | grep -oE '"ffmpegUp":[a-z]+|"ffmpegRestarts":[0-9]+|"renderMode":"[a-z]+"' | tr '\n' ' '; echo
-  printf '[music]  '; curl -s "$CONTROL/music/status" 2>/dev/null | grep -oE '"title":"[^"]*"|"queue":[0-9]+' | tr '\n' ' '; echo
+  printf '[music]  '; now_playing
+}
+
+# pretty-print whatever's playing (title/artist/requester/likes/queue/cover)
+now_playing() {
+  local j title artist who likes queue cover
+  j=$(curl -s "$CONTROL/music/status" 2>/dev/null)
+  title=$(echo "$j" | grep -oE '"title":"[^"]*"' | sed 's/"title":"//;s/"$//')
+  [ -z "$title" ] && { echo "(nothing playing)"; return; }
+  artist=$(echo "$j" | grep -oE '"artist":"[^"]*"' | sed 's/"artist":"//;s/"$//')
+  who=$(echo "$j" | grep -oE '"who":"[^"]*"' | sed 's/"who":"//;s/"$//')
+  likes=$(echo "$j" | grep -oE '"likes":[0-9]+' | grep -oE '[0-9]+')
+  queue=$(echo "$j" | grep -oE '"queue":[0-9]+' | grep -oE '[0-9]+')
+  echo "$j" | grep -q '"image":"https' && cover="cover ✓" || cover="no cover"
+  echo "♪ $title — $artist   ${who:+(req $who) }♥ ${likes:-0}  ▶ ${queue:-0} queued  $cover"
+}
+
+# operator: queue a Suno song directly. Resolve host-side first so we can show
+# the title/artist/cover (the streamer also resolves it on enqueue — that's what
+# grabs the cover the scene shows).
+queue_song() {
+  local url="${1:-}" who="${2:-@operator}" info resp pos
+  [ -n "$url" ] || { echo "usage: $0 queue <suno-share-url> [who]"; return 1; }
+  info=$(node --input-type=module -e '
+    import { resolveSuno } from "./packages/streamer/src/music/resolve.js";
+    const r = await resolveSuno(process.argv[1]);
+    process.stdout.write(r.ok ? `OK\t${r.title}\t${r.artist}\t${r.image ? "cover ✓" : "no cover"}` : `ERR\t${r.error}`);
+  ' "$url" 2>/dev/null)
+  case "$info" in
+    OK*) IFS=$'\t' read -r _ t a c <<<"$info"; echo "  ♪ $t — $a   ($c)" ;;
+    *)   echo "  ✗ could not resolve: $url"; return 1 ;;
+  esac
+  resp=$(curl -s -X POST "$CONTROL/music/enqueue" -H 'content-type: application/json' -d "{\"link\":\"$url\",\"who\":\"$who\"}")
+  case "$resp" in
+    *'"ok":true'*) pos=$(echo "$resp" | grep -oE '"position":[0-9]+' | grep -oE '[0-9]+'); echo "  ✓ queued at #${pos:-?} (req $who)" ;;
+    *) echo "  ✗ enqueue rejected: $resp" ;;
+  esac
+}
+
+# operator: move onto the next song
+next_song() {
+  curl -s -X POST "$CONTROL/music/skip" >/dev/null
+  echo "[live] ⏭  skipped — next up:"
+  sleep 3
+  printf '  '; now_playing
 }
 
 case "${1:-status}" in
-  start)   start ;;
-  stop)    stop ;;
-  restart) stop; sleep 1; start ;;
-  status)  status ;;
-  logs)    tail -f "$LOG" ;;
-  queue)
-    [ -n "${2:-}" ] || { echo "usage: $0 queue <suno-share-url>"; exit 1; }
-    curl -s -X POST "$CONTROL/music/enqueue" -H 'content-type: application/json' \
-      -d "{\"link\":\"$2\",\"who\":\"${3:-@operator}\"}"; echo ;;
-  skip)    curl -s -X POST "$CONTROL/music/skip"; echo ;;
-  *) echo "usage: $0 {start|stop|restart|status|logs|queue <url>|skip}"; exit 1 ;;
+  start)     start ;;
+  stop)      stop ;;
+  restart)   stop; sleep 1; start ;;
+  status)    status ;;
+  logs)      tail -f "$LOG" ;;
+  now)       printf '  '; now_playing ;;
+  queue)     queue_song "${2:-}" "${3:-@operator}" ;;
+  next|skip) next_song ;;
+  *) echo "usage: $0 {start|stop|restart|status|logs|now|queue <url> [who]|next}"; exit 1 ;;
 esac
