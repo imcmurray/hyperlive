@@ -8,6 +8,7 @@ import puppeteer from "puppeteer-core";
 import { config, ingestUrl } from "./config.js";
 import { startStreamer, startScreencastStreamer } from "./ffmpeg.js";
 import { createDJ } from "./music/dj.js";
+import { createMeter } from "./music/meter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCENE_DIR = path.resolve(__dirname, "../scene");
@@ -33,6 +34,7 @@ const ALLOWED_ACTIONS = new Set([
   "voteUpdate",
   "voteEnd",
   "setNowPlaying",
+  "setEqLevels",
   "renderWarning",
   "status",
 ]);
@@ -41,6 +43,7 @@ let page = null;
 let streamer = null;
 let browser = null;
 let dj = null;        // auto-DJ daemon (music)
+let meter = null;     // audio level meter (eq bars)
 let renderMode = "?"; // gpu | cpu
 let gpuRenderer = "";
 
@@ -357,11 +360,25 @@ async function main() {
     });
     dj.start().catch((e) => console.error("[dj] start failed:", e.message));
     console.log("[music] auto-DJ enabled (AUDIO_MODE=music)");
+
+    // audio-reactive eq bars: tap the sink loudness, push to the scene (~18fps)
+    let lastEq = 0;
+    meter = createMeter({
+      onLevel: (lvl) => {
+        const now = Date.now();
+        if (now - lastEq < 55) return; // cap at ~18fps of page evaluates
+        lastEq = now;
+        applyDirective({ action: "setEqLevels", params: { level: lvl } }).catch(() => {});
+      },
+      log: console.log,
+    });
+    meter.start();
   }
 
   // graceful shutdown
   const shutdown = async (sig) => {
     console.log(`\n[shutdown] ${sig} received`);
+    if (meter) meter.stop();
     if (dj) dj.stop();
     if (streamer) streamer.stop();
     if (browser) await browser.close().catch(() => {});
