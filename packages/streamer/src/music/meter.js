@@ -13,25 +13,25 @@ import { spawn } from "node:child_process";
 import { config } from "../config.js";
 
 const N = 4;
-const FLOOR = -64;          // dB considered silence
-const MIN_RANGE = 12;       // never normalize against less than this many dB
-const PEAK_DECAY = 0.04;    // dB the per-band peak falls each window (auto-gain)
+// FIXED dB→0..1 mapping per band (measured: music RMS runs ~ -13 dB loud to the
+// -40s in quiet parts). Quiet really maps to 0 — no auto-gain pumping the bars
+// back up. floor = bar empties at/below this; ceil = bar full at/above.
+const FLOOR = [-44, -44, -42, -42];
+const CEIL = [-13, -13, -16, -15];
+const GAMMA = 1.5;          // >1 pushes the low end down so quiet clearly drops
 
 export function createMeter({ onLevels = () => {}, log = () => {} }) {
   let proc = null, stopped = false;
   const level = [0, 0, 0, 0];
-  const peak = [-28, -34, -34, -38]; // adaptive per-band ceiling (dB)
   let cur = [null, null, null, null];
 
   function emit() {
     for (let i = 0; i < N; i++) {
-      const db = cur[i] == null ? FLOOR : cur[i];
-      // adaptive ceiling: jump to new peaks, decay slowly back down
-      peak[i] = db > peak[i] ? db : Math.max(FLOOR + MIN_RANGE, peak[i] - PEAK_DECAY);
-      const range = Math.max(MIN_RANGE, peak[i] - FLOOR);
-      const v = Math.max(0, Math.min(1, (db - FLOOR) / range));
-      // snappy attack (catch beats), softer release
-      level[i] = v > level[i] ? v * 0.82 + level[i] * 0.18 : v * 0.4 + level[i] * 0.6;
+      const db = cur[i] == null ? -90 : cur[i];
+      let v = (db - FLOOR[i]) / (CEIL[i] - FLOOR[i]);
+      v = Math.pow(Math.max(0, Math.min(1, v)), GAMMA);
+      // snappy attack (catch beats), quick release (drop in quiet parts)
+      level[i] = v > level[i] ? v * 0.85 + level[i] * 0.15 : v * 0.5 + level[i] * 0.5;
     }
     onLevels(level.slice());
     cur = [null, null, null, null];
