@@ -32,13 +32,14 @@ auto-finding your live broadcast's chat).
 
 1. Start **Go Live** on YouTube (the desktop "Streaming software" path — the
    streamer container is already pushing RTMP to your key).
-2. Run the ingest against real chat (instead of the `SOURCE=live` simulator):
+2. Start the chat ingest with the control script (single-instance, logs, status):
    ```
-   SOURCE=youtube MUTATE_URL=http://localhost:8080/mutate MOOD_TICK_MS=6000 \
-     node packages/ingest/src/index.js
+   scripts/live.sh start      # stop | restart | status | logs | queue <url> | skip
    ```
-   It auto-discovers the active broadcast's `liveChatId` (waits politely if you
-   haven't gone live yet) and starts reacting to **new** messages only.
+   It runs `SOURCE=youtube`, auto-discovers the active broadcast's `liveChatId`
+   (waits politely if you haven't gone live yet), reacts to **new** messages
+   only, and resumes from a saved cursor (`state/yt-cursor.json`) across restarts
+   so nothing's missed during a bounce.
 
 Everything downstream is unchanged — moderation, the mood engine, theme voting,
 music requests/likes, Super-Chat tiers (YouTube tier 1–5 → small/medium/large).
