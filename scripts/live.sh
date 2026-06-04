@@ -2,9 +2,13 @@
 # Control the LIVE ingest — the loop that reads YouTube chat, moderates it, and
 # tells the stream how to react (themes, votes, music, reactions, Super Chats).
 #
-#   scripts/live.sh start     # (re)start it — always single-instance
-#   scripts/live.sh stop      # stop it
-#   scripts/live.sh restart   # stop + start
+#   scripts/live.sh boot      # turn it ALL on: streamer container + chat ingest
+#   scripts/live.sh down      # turn it ALL off: ingest + container
+#   scripts/live.sh up        # start just the streamer container
+#   scripts/live.sh build     # rebuild + start the container (after code changes)
+#   scripts/live.sh start     # (re)start just the chat ingest — single-instance
+#   scripts/live.sh stop      # stop just the chat ingest
+#   scripts/live.sh restart   # stop + start the ingest
 #   scripts/live.sh status    # is it running? + stream health + now-playing
 #   scripts/live.sh logs      # tail the ingest log
 #   scripts/live.sh now       # what's playing (title/artist/cover/likes/queue)
@@ -69,9 +73,28 @@ start() {
   status
 }
 
+# --- streamer container (Xvfb + Chromium + ffmpeg + DJ) ---
+wait_healthy() {
+  printf "[live] waiting for the streamer"
+  for _ in $(seq 1 45); do
+    if curl -s "$CONTROL/health" 2>/dev/null | grep -q '"ffmpegUp":true'; then echo " — up"; return 0; fi
+    printf "."; sleep 1
+  done
+  echo " — not healthy yet (try: $0 status)"; return 1
+}
+up()    { echo "[live] starting streamer container…";    docker compose up -d 2>&1 | tail -2;          wait_healthy; }
+build() { echo "[live] rebuilding streamer container…";  docker compose up -d --build 2>&1 | tail -2;  wait_healthy; }
+boot()  { up && start; }                                 # container + chat ingest in one go
+down_all() {                                             # stop everything for the day
+  stop
+  echo "[live] stopping streamer container…"
+  docker compose down 2>&1 | tail -2
+}
+
 status() {
   local p; p=$(ingest_pids)
-  if [ -n "$p" ]; then echo "[live] RUNNING (pid $p)"; else echo "[live] NOT running"; fi
+  if [ -n "$(docker compose ps -q 2>/dev/null)" ]; then echo "[container] up"; else echo "[container] DOWN  (run: $0 up)"; fi
+  if [ -n "$p" ]; then echo "[ingest] RUNNING (pid $p)"; else echo "[ingest] not running  (run: $0 start)"; fi
   grep -iE 'source=|connected|resumed' "$LOG" 2>/dev/null | tail -2
   printf '[stream] '; curl -s "$CONTROL/health" 2>/dev/null | grep -oE '"ffmpegUp":[a-z]+|"ffmpegRestarts":[0-9]+|"renderMode":"[a-z]+"' | tr '\n' ' '; echo
   printf '[music]  '; now_playing
@@ -163,8 +186,12 @@ standby() {
 }
 
 case "${1:-status}" in
-  start)     start ;;
-  stop)      stop ;;
+  up)        up ;;                 # start the streamer container
+  build)     build ;;             # rebuild + start the container (after code changes)
+  down)      down_all ;;          # stop the ingest AND the container (full off)
+  boot)      boot ;;              # container + chat ingest (full on)
+  start)     start ;;             # start just the chat ingest
+  stop)      stop ;;              # stop just the chat ingest
   restart)   stop; sleep 1; start ;;
   status)    status ;;
   logs)      tail -f "$LOG" ;;
@@ -174,5 +201,5 @@ case "${1:-status}" in
   intro)     standby intro ;;   # "starting shortly" landing screen
   outro)     standby outro ;;   # "thanks for listening" landing screen
   onair|live) standby off ;;    # reveal the live show
-  *) echo "usage: $0 {start|stop|restart|status|logs|now|queue [<url> [who]]|next|intro|outro|onair}"; exit 1 ;;
+  *) echo "usage: $0 {boot|down|up|build | start|stop|restart|status|logs | now|queue [<url>]|next | intro|outro|onair}"; exit 1 ;;
 esac
