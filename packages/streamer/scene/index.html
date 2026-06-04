@@ -26,8 +26,10 @@
     >
       <!-- ====== background: double-buffered for crossfade transitions ====== -->
       <div id="bg" aria-hidden="true">
-        <!-- song cover as a dim, drifting full-stage backdrop (under theme + fx) -->
-        <div id="cover-bg" aria-hidden="true"></div>
+        <!-- song cover as a dim, drifting full-stage backdrop (under theme + fx);
+             two layers so covers crossfade between songs -->
+        <div class="cover-bg" id="cover-bg-a" aria-hidden="true"></div>
+        <div class="cover-bg" id="cover-bg-b" aria-hidden="true"></div>
         <!-- active layer -->
         <div class="bg-layer theme-synthwave" id="bg-a">
           <div class="bg-base"></div>

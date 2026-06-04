@@ -154,13 +154,12 @@ html, body {
 /* song cover as a dim, blurred, slowly-drifting full-stage backdrop. Sits under
    the theme gradient + auras + fx; the theme base goes translucent (only while a
    cover is showing) so it reads through as a color-washed album-art ambience. */
-#cover-bg {
+.cover-bg {
   position: absolute; inset: -6%; z-index: 0; pointer-events: none;
   background-size: cover; background-position: center;
-  filter: blur(18px) saturate(1.25) brightness(0.85); will-change: transform, opacity;
-  opacity: 0; transition: opacity 1.5s ease;
+  filter: blur(17px) saturate(1.2) brightness(0.85);
+  opacity: 0; will-change: transform, opacity, filter; /* opacity/filter driven by GSAP */
 }
-#cover-bg.on { opacity: 0.6; }
 body.has-cover .bg-base { opacity: 0.45; }
 
 /* soft color auras — radial gradients (cheap) instead of blurred solids */

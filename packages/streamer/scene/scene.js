@@ -73,8 +73,41 @@
   let voteEndsAt = 0;        // when the current countdown is due (for stale-round recovery)
   let voteKeys = "";         // the live round's locked option keys — reject foreign updates
   let npBgTween = null;      // now-playing cover Ken Burns drift
-  let stageCoverTween = null; // full-stage cover backdrop drift
+  let coverLayer = 0;        // which full-stage cover layer is visible (0=a, 1=b)
   let npImg = "";            // current cover url (restart the drift only on track change)
+
+  // ---- full-stage cover backdrop: crossfade between songs, slow drift + a
+  // gentle focus pull (unblur → reblur) for life. Two layers crossfade.
+  function startCoverDrift(el) {
+    if (!gsap || !el) return;
+    gsap.killTweensOf(el, "scale,x,y");
+    gsap.fromTo(el, { scale: 1.06, x: -16, y: 9 },
+      { scale: 1.18, x: 16, y: -11, duration: 30, ease: "sine.inOut", yoyo: true, repeat: -1 });
+    if (el._blur) el._blur.kill();
+    const f = { b: 17 };
+    const apply = () => { el.style.filter = `blur(${f.b.toFixed(1)}px) saturate(1.2) brightness(0.85)`; };
+    apply();
+    el._blur = gsap.to(f, { b: 8, duration: 13, ease: "sine.inOut", yoyo: true, repeat: -1, onUpdate: apply });
+  }
+  function setStageCover(img) {
+    const a = $("#cover-bg-a"), b = $("#cover-bg-b");
+    if (!a || !b || !gsap) return;
+    document.body.classList.toggle("has-cover", !!img);
+    const layers = [a, b];
+    const cur = layers[coverLayer];
+    if (!img) { // no cover → fade both out, stop their drifts
+      for (const el of layers) { gsap.killTweensOf(el, "scale,x,y"); if (el._blur) { el._blur.kill(); el._blur = null; } gsap.to(el, { opacity: 0, duration: 1.3, ease: "sine.inOut" }); }
+      return;
+    }
+    const next = layers[coverLayer ^ 1];
+    next.style.backgroundImage = `url("${img}")`;
+    startCoverDrift(next);
+    gsap.fromTo(next, { opacity: 0 }, { opacity: 0.6, duration: 1.6, ease: "sine.inOut" });
+    // fade the outgoing layer out + stop its drift/blur (no point re-blurring it)
+    gsap.killTweensOf(cur, "scale,x,y"); if (cur._blur) { cur._blur.kill(); cur._blur = null; }
+    gsap.to(cur, { opacity: 0, duration: 1.5, ease: "sine.inOut" });
+    coverLayer ^= 1;
+  }
   function voteShow(on) {
     const el = $("#vote");
     if (!el) return;
@@ -1023,18 +1056,8 @@
               { scale: 1.16, x: 10, y: -6, duration: 16, ease: "sine.inOut", yoyo: true, repeat: -1 });
           }
         }
-        // the same cover as a dim, drifting full-stage backdrop under theme + fx
-        const cover = $("#cover-bg");
-        if (cover) {
-          cover.style.backgroundImage = img ? `url("${img}")` : "";
-          cover.classList.toggle("on", !!img);
-          document.body.classList.toggle("has-cover", !!img);
-          if (stageCoverTween) { stageCoverTween.kill(); stageCoverTween = null; }
-          if (gsap && img) {
-            stageCoverTween = gsap.fromTo(cover, { scale: 1.06, x: -16, y: 9 },
-              { scale: 1.18, x: 16, y: -11, duration: 28, ease: "sine.inOut", yoyo: true, repeat: -1 });
-          }
-        }
+        // the same cover as a dim, crossfading, drifting full-stage backdrop
+        setStageCover(img);
       }
       const set = (sel, txt) => { const n = el.querySelector(sel); if (n) n.textContent = txt; };
       set(".np-title", title);
