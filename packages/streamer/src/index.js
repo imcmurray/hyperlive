@@ -369,7 +369,8 @@ async function main() {
         const now = Date.now();
         if (now - lastEq < 36) return; // cap at ~28fps of page evaluates
         lastEq = now;
-        applyDirective({ action: "setEqLevels", params: { bands } }).catch(() => {});
+        const push = () => applyDirective({ action: "setEqLevels", params: { bands } }).catch(() => {});
+        if (config.barDelayMs > 0) setTimeout(push, config.barDelayMs); else push();
       },
       log: console.log,
     });
