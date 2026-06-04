@@ -52,10 +52,11 @@ export async function resolveSuno(shareUrl, { timeoutMs = 12000, fetchImpl = fet
       else title = tm[1].replace(/\s*\|\s*Suno.*$/i, "").trim() || title;
     }
 
-    // cover art via og:image, validated to the suno image CDN (allowlist). Some
-    // covers have a "_<suffix>" after the uuid (e.g. <uuid>_7a797992.jpeg).
+    // cover art via og:image. The security gate is the HOST (must be the suno.ai
+    // CDN, no arbitrary host); the filename varies a lot — bare uuid, _suffix,
+    // image_<uuid>, image_large_<uuid> — so allow any image filename there.
     const og = (html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) || [])[1] || "";
-    const image = /^https:\/\/cdn\d*\.suno\.ai\/[0-9a-f-]{36}(?:_[0-9a-z]+)?\.(?:jpe?g|png|webp)$/i.test(og) ? og : "";
+    const image = /^https:\/\/cdn\d*\.suno\.ai\/[A-Za-z0-9_-]+\.(?:jpe?g|png|webp)$/i.test(og) ? og : "";
 
     return { ok: true, audioUrl, image, title: decodeEntities(title), artist: decodeEntities(artist), share: shareUrl };
   } catch (e) {

@@ -8,9 +8,14 @@
 // re-resolved once (the CDN url may have gone stale) before we move on.
 
 import { spawn } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolveSuno } from "./resolve.js";
 import { ROTATION } from "./rotation.js";
 import { config } from "../config.js";
+
+// the waiting request queue is persisted here so a streamer restart doesn't drop
+// viewer requests (the bind-mounted control/ survives container rebuilds)
+const QUEUE_FILE = process.env.MUSIC_QUEUE_FILE || "./control/music-queue.json";
 
 export function createDJ({ onUpdate = () => {}, log = () => {} }) {
   const rotation = [];        // resolved house tracks {audioUrl,title,artist,share}
@@ -20,6 +25,17 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
   let rotIdx = 0;
   let stopped = false;
   let updateTimer = null;
+
+  async function saveQueue() {
+    try { await writeFile(QUEUE_FILE, JSON.stringify(queue)); } catch { /* non-fatal */ }
+  }
+  async function loadQueue() {
+    try {
+      const saved = JSON.parse(await readFile(QUEUE_FILE, "utf8"));
+      if (Array.isArray(saved)) return saved.filter((t) => t && t.share && t.audioUrl);
+    } catch { /* none */ }
+    return [];
+  }
 
   function status() {
     return {
@@ -49,7 +65,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
   }
 
   function nextTrack() {
-    if (queue.length) return { ...queue.shift(), source: "request" };
+    if (queue.length) { const t = queue.shift(); saveQueue(); return { ...t, source: "request" }; }
     if (!rotation.length) return null;
     const t = rotation[rotIdx % rotation.length];
     rotIdx += 1;
@@ -92,6 +108,9 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
       log(`[dj] resolving ${ROTATION.length} rotation tracks…`);
       rotation.push(...(await resolveAll(ROTATION)));
       log(`[dj] rotation ready: ${rotation.length}/${ROTATION.length} tracks`);
+      // restore any persisted request queue (survives a streamer restart)
+      const saved = await loadQueue();
+      if (saved.length) { queue.push(...saved); log(`[dj] restored ${saved.length} queued request(s)`); }
       const first = nextTrack();
       if (first) play(first); else log("[dj] no playable rotation tracks — idle");
     },
@@ -105,6 +124,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
       const r = await resolveSuno(shareUrl).catch(() => ({ ok: false, error: "resolve error" }));
       if (!r.ok) return { ok: false, reason: r.error || "could not resolve" };
       queue.push({ audioUrl: r.audioUrl, image: r.image, title: r.title, artist: r.artist, share: shareUrl, who: who || "" });
+      saveQueue();
       log(`  ♪ queued: ${r.title} — ${r.artist} (req ${who || "?"}) [${queue.length} in queue]`);
       pushUpdate();
       return { ok: true, title: r.title, artist: r.artist, position: queue.length };
