@@ -150,7 +150,18 @@ html, body {
 }
 .bg-layer.is-hidden { display: none; }
 
-.bg-base { position: absolute; inset: 0; background: var(--bg-grad); }
+.bg-base { position: absolute; inset: 0; background: var(--bg-grad); transition: opacity 1.2s ease; }
+/* song cover as a dim, blurred, slowly-drifting full-stage backdrop. Sits under
+   the theme gradient + auras + fx; the theme base goes translucent (only while a
+   cover is showing) so it reads through as a color-washed album-art ambience. */
+#cover-bg {
+  position: absolute; inset: -6%; z-index: 0; pointer-events: none;
+  background-size: cover; background-position: center;
+  filter: blur(18px) saturate(1.25) brightness(0.85); will-change: transform, opacity;
+  opacity: 0; transition: opacity 1.5s ease;
+}
+#cover-bg.on { opacity: 0.6; }
+body.has-cover .bg-base { opacity: 0.45; }
 
 /* soft color auras — radial gradients (cheap) instead of blurred solids */
 .aura {
@@ -468,7 +479,18 @@ html, body {
   box-shadow: 0 14px 40px rgba(0,0,0,0.5);
   will-change: transform, opacity;
 }
+#nowplaying { overflow: hidden; } /* clip the drifting cover layer to the card */
 #nowplaying[data-show="false"] { display: none; }
+#nowplaying > *:not(.np-bg) { position: relative; z-index: 1; } /* content above the cover */
+/* dim, blurred cover behind the content — slowly drifts (Ken Burns) */
+.np-bg {
+  position: absolute; inset: -10%; z-index: 0; pointer-events: none;
+  background-size: cover; background-position: center;
+  opacity: 0.34; filter: blur(3px) saturate(1.15); will-change: transform;
+  /* fade the cover toward the left so the title/art stay clean, stronger right */
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 45%);
+          mask-image: linear-gradient(90deg, transparent 0%, #000 45%);
+}
 /* cover art (Suno og:image) */
 .np-art {
   width: 46px; height: 46px; flex: 0 0 auto; border-radius: 9px;

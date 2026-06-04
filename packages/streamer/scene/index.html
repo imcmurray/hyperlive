@@ -26,6 +26,8 @@
     >
       <!-- ====== background: double-buffered for crossfade transitions ====== -->
       <div id="bg" aria-hidden="true">
+        <!-- song cover as a dim, drifting full-stage backdrop (under theme + fx) -->
+        <div id="cover-bg" aria-hidden="true"></div>
         <!-- active layer -->
         <div class="bg-layer theme-synthwave" id="bg-a">
           <div class="bg-base"></div>
@@ -108,6 +110,7 @@
 
       <!-- now-playing card (auto-DJ): track + requester + like meter + queue -->
       <div id="nowplaying" data-show="false">
+        <span class="np-bg" aria-hidden="true"></span>
         <span class="np-art" data-show="false" aria-hidden="true"></span>
         <span class="np-eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
         <div class="np-col">

@@ -72,6 +72,9 @@
   let voteActive = false;    // a round is on screen (until its countdown + result finish)
   let voteEndsAt = 0;        // when the current countdown is due (for stale-round recovery)
   let voteKeys = "";         // the live round's locked option keys — reject foreign updates
+  let npBgTween = null;      // now-playing cover Ken Burns drift
+  let stageCoverTween = null; // full-stage cover backdrop drift
+  let npImg = "";            // current cover url (restart the drift only on track change)
   function voteShow(on) {
     const el = $("#vote");
     if (!el) return;
@@ -1006,6 +1009,32 @@
       if (art) {
         if (img) { art.style.backgroundImage = `url("${img}")`; art.dataset.show = "true"; }
         else { art.style.backgroundImage = ""; art.dataset.show = "false"; }
+      }
+      // dim cover behind the card, with a slow Ken Burns drift — only (re)start
+      // when the track's cover actually changes (not on every like/queue update)
+      if (img !== npImg) {
+        npImg = img;
+        const bg = el.querySelector(".np-bg");
+        if (bg) {
+          bg.style.backgroundImage = img ? `url("${img}")` : "";
+          if (npBgTween) { npBgTween.kill(); npBgTween = null; }
+          if (gsap && img) {
+            npBgTween = gsap.fromTo(bg, { scale: 1.05, x: -8, y: 5 },
+              { scale: 1.16, x: 10, y: -6, duration: 16, ease: "sine.inOut", yoyo: true, repeat: -1 });
+          }
+        }
+        // the same cover as a dim, drifting full-stage backdrop under theme + fx
+        const cover = $("#cover-bg");
+        if (cover) {
+          cover.style.backgroundImage = img ? `url("${img}")` : "";
+          cover.classList.toggle("on", !!img);
+          document.body.classList.toggle("has-cover", !!img);
+          if (stageCoverTween) { stageCoverTween.kill(); stageCoverTween = null; }
+          if (gsap && img) {
+            stageCoverTween = gsap.fromTo(cover, { scale: 1.06, x: -16, y: 9 },
+              { scale: 1.18, x: 16, y: -11, duration: 28, ease: "sine.inOut", yoyo: true, repeat: -1 });
+          }
+        }
       }
       const set = (sel, txt) => { const n = el.querySelector(sel); if (n) n.textContent = txt; };
       set(".np-title", title);
