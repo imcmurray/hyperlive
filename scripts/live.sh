@@ -11,6 +11,9 @@
 #   scripts/live.sh queue     # list the waiting request queue
 #   scripts/live.sh queue URL # operator: queue a Suno song directly (shows cover)
 #   scripts/live.sh next      # operator: move onto the next song (alias: skip)
+#   scripts/live.sh intro     # show "starting shortly" landing screen
+#   scripts/live.sh outro     # show "thanks for listening" landing screen
+#   scripts/live.sh onair     # reveal the live show (hide the landing screen)
 #
 # It runs SOURCE=youtube; OAuth creds + tunables come from .env (see
 # docs/youtube-oauth.md). Override any of these via the environment:
@@ -145,6 +148,13 @@ next_song() {
   printf '  '; now_playing
 }
 
+# operator: standby landing screen (intro/outro) or reveal the live show (off)
+standby() {
+  curl -s -X POST "$MUTATE_URL" -H 'content-type: application/json' \
+    -d "{\"action\":\"setStandby\",\"params\":{\"mode\":\"$1\"}}" >/dev/null \
+    && echo "[live] standby → $1" || echo "[live] failed (is the streamer up?)"
+}
+
 case "${1:-status}" in
   start)     start ;;
   stop)      stop ;;
@@ -154,5 +164,8 @@ case "${1:-status}" in
   now)       printf '  '; now_playing ;;
   queue)     if [ -n "${2:-}" ]; then queue_song "$2" "${3:-@operator}"; else echo "[queue]"; queue_list; fi ;;
   next|skip) next_song ;;
-  *) echo "usage: $0 {start|stop|restart|status|logs|now|queue [<url> [who]]|next}"; exit 1 ;;
+  intro)     standby intro ;;   # "starting shortly" landing screen
+  outro)     standby outro ;;   # "thanks for listening" landing screen
+  onair|live) standby off ;;    # reveal the live show
+  *) echo "usage: $0 {start|stop|restart|status|logs|now|queue [<url> [who]]|next|intro|outro|onair}"; exit 1 ;;
 esac

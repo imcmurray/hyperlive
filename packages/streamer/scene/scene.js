@@ -1091,6 +1091,25 @@
       return { ok: true, bands: bands || [] };
     },
 
+    // standby / landing screen. mode: "intro" | "outro" | "off" (custom title/
+    // subtitle override the preset). "off" reveals the live show.
+    setStandby(p = {}) {
+      const el = $("#standby");
+      if (!el) return { ok: false };
+      const mode = String(p.mode || "off").toLowerCase();
+      if (mode === "off") { el.dataset.show = "false"; return { ok: true, mode }; }
+      const presets = {
+        intro: { title: "Stream starting shortly", sub: "sit tight — the show's about to begin" },
+        outro: { title: "Thanks for listening", sub: "see you next time 👋" },
+      };
+      const d = presets[mode] || presets.intro;
+      const t = $(".sb-title"), s = $(".sb-sub");
+      if (t) t.textContent = clean(p.title, 60) || d.title;
+      if (s) s.textContent = clean(p.subtitle, 90) || d.sub;
+      el.dataset.show = "true";
+      return { ok: true, mode };
+    },
+
     // show/hide the CPU-rendering warning banner (operator can dismiss it)
     renderWarning(p = {}) { showWarning(p.show !== false); return { show: p.show !== false }; },
   };

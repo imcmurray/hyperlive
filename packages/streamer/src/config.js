@@ -36,6 +36,10 @@ export const config = {
   // (handy for local visual testing without a YouTube key)
   dryRun: (process.env.DRY_RUN || "false").toLowerCase() === "true",
 
+  // show the "starting shortly" standby screen on boot (operator reveals the
+  // show with `live.sh onair`). Default off → boots straight into the live scene.
+  standbyOnBoot: (process.env.STANDBY_ON_BOOT || "false").toLowerCase() === "true",
+
   // capture path: "x11grab" (headful + Xvfb, software) | "screencast" (headless + GPU via CDP)
   capture: (process.env.CAPTURE || "x11grab").toLowerCase(),
   // if set, screencast encoder writes to this file instead of RTMP (for safe testing)

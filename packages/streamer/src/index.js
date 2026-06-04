@@ -35,6 +35,7 @@ const ALLOWED_ACTIONS = new Set([
   "voteEnd",
   "setNowPlaying",
   "setEqLevels",
+  "setStandby",
   "renderWarning",
   "status",
 ]);
@@ -316,6 +317,9 @@ async function main() {
 
   // tell the scene its mode + target fps (so motion fps == capture fps)
   await applyRenderMode(renderMode, eff.fps);
+
+  // optionally come up on the "starting shortly" standby screen
+  if (config.standbyOnBoot) await applyDirective({ action: "setStandby", params: { mode: "intro" } }).catch(() => {});
 
   if (config.dryRun) {
     console.log("[stream] DRY_RUN=true → not pushing. Scene is rendering only.");
