@@ -7,7 +7,9 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "sim": "SOURCE=simulate node src/index.js"
+    "sim": "SOURCE=simulate node src/index.js",
+    "live": "SOURCE=youtube node src/index.js",
+    "yt-auth": "node src/youtube-auth.js"
   },
   "engines": { "node": ">=20" }
 }

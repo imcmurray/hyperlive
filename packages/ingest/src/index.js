@@ -2,6 +2,7 @@
 //   comment source → moderation gate → director → POST /mutate
 // Every comment's full journey (decision + directive + result) is audit-logged.
 
+import "./load-env.js"; // must precede config.js so .env vars reach process.env
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";

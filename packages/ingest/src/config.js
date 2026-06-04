@@ -48,10 +48,15 @@ export const config = {
   // on-screen "typed → on-scene" latency readout
   showDelay: (process.env.SHOW_DELAY || "on").toLowerCase() !== "off",
 
-  // --- YouTube source (only needed when source=youtube) ---
+  // --- YouTube source (only needed when source=youtube). See docs/youtube-oauth.md ---
   yt: {
-    liveChatId: process.env.YT_LIVE_CHAT_ID || "",
-    accessToken: process.env.YT_ACCESS_TOKEN || "", // short-lived OAuth token (see docs/phase1.md)
+    // OAuth: refresh token mints access tokens automatically (24/7, no human).
+    clientId: process.env.YT_CLIENT_ID || "",
+    clientSecret: process.env.YT_CLIENT_SECRET || "",
+    refreshToken: process.env.YT_REFRESH_TOKEN || "",
+    // optional overrides: pin a chat id, or supply a short-lived token directly
+    liveChatId: process.env.YT_LIVE_CHAT_ID || "", // blank = auto-discover the active broadcast
+    accessToken: process.env.YT_ACCESS_TOKEN || "", // bypass refresh (manual/testing only)
   },
 
   // --- run control ---
