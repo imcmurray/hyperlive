@@ -88,6 +88,7 @@ export async function* youtubeSource() {
     if (!first) for (const item of data.items || []) yield toComment(item);
     first = false;
 
-    await sleep(Math.max(1500, data.pollingIntervalMillis || 3000)); // honour server cadence
+    // poll no faster than our quota cap, but slower if YouTube asks (quiet chat)
+    await sleep(Math.max(config.yt.minPollMs, data.pollingIntervalMillis || 3000));
   }
 }

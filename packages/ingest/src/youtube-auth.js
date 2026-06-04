@@ -55,15 +55,24 @@ async function runAuthFlow() {
     const server = http.createServer((req, res) => {
       const u = new URL(req.url, redirectUri);
       const c = u.searchParams.get("code"), err = u.searchParams.get("error");
+      // first hit (no code) → serve a landing page with a clickable Authorize
+      // button (its href carries the full consent URL, so nothing gets copied)
+      if (!c && !err) {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<html><body style="font-family:system-ui,sans-serif;text-align:center;padding:4rem;background:#0b0820;color:#eee">
+          <h2>HyperLive — connect YouTube chat</h2>
+          <p style="opacity:.7">Grant read-only access to your live chat.</p>
+          <p style="margin-top:2rem"><a href="${authUrl.toString()}" style="display:inline-block;padding:16px 34px;background:#7a2bff;color:#fff;border-radius:12px;text-decoration:none;font-weight:700;font-size:18px">Authorize with Google →</a></p>
+          </body></html>`);
+        return;
+      }
       res.writeHead(200, { "content-type": "text/html" });
-      res.end(`<html><body style="font-family:sans-serif;padding:2rem"><h2>${c ? "✓ Authorized — close this tab and return to the terminal." : "Auth failed: " + err}</h2></body></html>`);
+      res.end(`<html><body style="font-family:system-ui,sans-serif;padding:3rem;background:#0b0820;color:#eee"><h2>${c ? "✓ Authorized — close this tab and return to the terminal." : "Auth failed: " + err}</h2></body></html>`);
       server.close();
       c ? resolve(c) : reject(new Error(err || "no code"));
     });
     server.listen(port, "127.0.0.1", () => {
-      console.log("\n1) Open this URL in your browser and authorize the Google account that owns the live stream:\n");
-      console.log("   " + authUrl.toString() + "\n");
-      console.log(`2) Waiting for the redirect to ${redirectUri} …`);
+      console.log(`\n→ Open this in your browser:  http://127.0.0.1:${port}\n  then click "Authorize with Google".\n`);
     });
   });
 

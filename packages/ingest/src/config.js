@@ -57,6 +57,10 @@ export const config = {
     // optional overrides: pin a chat id, or supply a short-lived token directly
     liveChatId: process.env.YT_LIVE_CHAT_ID || "", // blank = auto-discover the active broadcast
     accessToken: process.env.YT_ACCESS_TOKEN || "", // bypass refresh (manual/testing only)
+    // min poll interval (ms) — caps quota burn. list = 5 units/call, 10k/day:
+    //   10000 (default) ≈ 5.5h of polling; ~45000 lasts a full 24h. We still
+    //   honour YouTube's larger pollingIntervalMillis when the chat is quiet.
+    minPollMs: num(process.env.YT_MIN_POLL_MS, 10000),
   },
 
   // --- run control ---
