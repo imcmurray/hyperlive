@@ -364,11 +364,11 @@ async function main() {
     // audio-reactive eq bars: tap the sink loudness, push to the scene (~18fps)
     let lastEq = 0;
     meter = createMeter({
-      onLevel: (lvl) => {
+      onLevels: (bands) => {
         const now = Date.now();
-        if (now - lastEq < 55) return; // cap at ~18fps of page evaluates
+        if (now - lastEq < 36) return; // cap at ~28fps of page evaluates
         lastEq = now;
-        applyDirective({ action: "setEqLevels", params: { level: lvl } }).catch(() => {});
+        applyDirective({ action: "setEqLevels", params: { bands } }).catch(() => {});
       },
       log: console.log,
     });

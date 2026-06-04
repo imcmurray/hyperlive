@@ -967,23 +967,21 @@
       return { ok: true, title, likes, queue };
     },
 
-    // drive the now-playing eq bars from the LIVE music loudness (0..1). Per-bar
-    // weighting + a gentle phase wobble makes one envelope read like a spectrum.
+    // drive the now-playing eq bars from the LIVE music spectrum. p.bands is a
+    // 4-element 0..1 array (one frequency band per bar); each bar = its band, so
+    // the bass bar moves on kicks, the treble bar on hats, etc.
     setEqLevels(p = {}) {
-      const level = clampNum(p.level, 0, 1, 0);
       const el = $("#nowplaying");
       if (!el) return { ok: false };
       const bars = el.querySelectorAll(".np-eq i");
       if (!bars.length) return { ok: false };
+      const bands = Array.isArray(p.bands) ? p.bands : null;
       el.classList.add("reactive"); // swap the idle keyframe for live-driven heights
-      const W = [0.92, 1.0, 0.74, 0.55]; // bass-ish → treble-ish bias
-      const t = (window.performance ? performance.now() : Date.now()) / 1000;
       bars.forEach((b, i) => {
-        const wob = 0.16 * level * Math.sin(t * (7 + i * 2) + i);
-        const h = Math.max(0.1, Math.min(1, level * W[i] + wob));
-        b.style.height = (h * 100).toFixed(0) + "%";
+        const v = bands ? clampNum(bands[i], 0, 1, 0) : clampNum(p.level, 0, 1, 0);
+        b.style.height = (Math.max(0.08, Math.min(1, v)) * 100).toFixed(0) + "%";
       });
-      return { ok: true, level };
+      return { ok: true, bands: bands || [] };
     },
 
     // show/hide the CPU-rendering warning banner (operator can dismiss it)

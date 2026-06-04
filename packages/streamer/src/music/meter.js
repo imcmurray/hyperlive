@@ -1,22 +1,57 @@
-// Audio level meter: taps the SAME PulseAudio sink the music plays into and
-// emits a smoothed 0..1 loudness envelope ~20×/sec, so the now-playing eq bars
-// can dance to the actual music. A monitor source allows multiple readers, so
-// this runs alongside the main capture ffmpeg without disturbing it.
+// Audio spectrum meter: taps the SAME PulseAudio sink the music plays into and
+// emits 4 frequency-band levels (0..1) ~30×/sec, so the now-playing eq bars are
+// a real little spectrum that tracks the music — bass drives the low bar, etc.
+// A monitor source allows multiple readers, so this runs alongside the main
+// capture ffmpeg without disturbing it.
+//
+// ffmpeg splits the signal into 4 bands, joins them as a 4-channel stream, and
+// astats then reports per-CHANNEL RMS (one channel == one band). Each band is
+// auto-normalized against its own slowly-decaying peak so quiet bands still
+// move and every bar uses its full height.
 
 import { spawn } from "node:child_process";
 import { config } from "../config.js";
 
-export function createMeter({ onLevel = () => {}, log = () => {} }) {
-  let proc = null, stopped = false, level = 0;
-  const FLOOR = -48, CEIL = -9; // dB window mapped to 0..1
+const N = 4;
+const FLOOR = -64;          // dB considered silence
+const MIN_RANGE = 12;       // never normalize against less than this many dB
+const PEAK_DECAY = 0.04;    // dB the per-band peak falls each window (auto-gain)
+
+export function createMeter({ onLevels = () => {}, log = () => {} }) {
+  let proc = null, stopped = false;
+  const level = [0, 0, 0, 0];
+  const peak = [-28, -34, -34, -38]; // adaptive per-band ceiling (dB)
+  let cur = [null, null, null, null];
+
+  function emit() {
+    for (let i = 0; i < N; i++) {
+      const db = cur[i] == null ? FLOOR : cur[i];
+      // adaptive ceiling: jump to new peaks, decay slowly back down
+      peak[i] = db > peak[i] ? db : Math.max(FLOOR + MIN_RANGE, peak[i] - PEAK_DECAY);
+      const range = Math.max(MIN_RANGE, peak[i] - FLOOR);
+      const v = Math.max(0, Math.min(1, (db - FLOOR) / range));
+      // snappy attack (catch beats), softer release
+      level[i] = v > level[i] ? v * 0.82 + level[i] * 0.18 : v * 0.4 + level[i] * 0.6;
+    }
+    onLevels(level.slice());
+    cur = [null, null, null, null];
+  }
 
   function start() {
     if (stopped) return;
     proc = spawn("ffmpeg", [
       "-hide_banner", "-loglevel", "info", "-nostats",
       "-f", "pulse", "-i", config.pulseMonitor,
-      // ~2205 samples @44.1k ≈ 20 windows/sec; print the per-window RMS level
-      "-af", "asetnsamples=n=2205:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level",
+      "-af", [
+        "asplit=4[a][b][c][d]",
+        "[a]lowpass=f=140[w]",        // sub/bass (kick)
+        "[b]bandpass=f=500[x]",       // low-mid
+        "[c]bandpass=f=2500[y]",      // high-mid (vocals/snare)
+        "[d]highpass=f=6000[z]",      // treble (hats/cymbals)
+        "[w][x][y][z]join=inputs=4:channel_layout=4.0[m]",
+        // ~1470 samples @44.1k ≈ 30 windows/sec
+        "[m]asetnsamples=n=1470:p=0,astats=metadata=1:reset=1,ametadata=print",
+      ].join(";"),
       "-f", "null", "-",
     ], { stdio: ["ignore", "ignore", "pipe"] });
 
@@ -26,17 +61,16 @@ export function createMeter({ onLevel = () => {}, log = () => {} }) {
       let nl;
       while ((nl = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
-        const m = line.match(/RMS_level=(-?inf|-?\d+(?:\.\d+)?)/i);
-        if (!m) continue;
-        const db = /inf/i.test(m[1]) ? FLOOR : parseFloat(m[1]);
-        const v = Math.max(0, Math.min(1, (db - FLOOR) / (CEIL - FLOOR)));
-        // fast attack, slower release → punchy but not jittery
-        level = v > level ? v * 0.6 + level * 0.4 : v * 0.28 + level * 0.72;
-        onLevel(level);
+        const band = line.match(/astats\.([1-4])\.RMS_level=(-?inf|-?\d+(?:\.\d+)?)/i);
+        if (band) {
+          cur[+band[1] - 1] = /inf/i.test(band[2]) ? FLOOR : parseFloat(band[2]);
+        } else if (/astats\.Overall\.RMS_level=/i.test(line)) {
+          emit(); // Overall is the last key of each window → flush
+        }
       }
     });
     proc.on("exit", () => { proc = null; if (!stopped) setTimeout(start, 1000); });
-    log("[meter] audio level meter started");
+    log("[meter] 4-band spectrum meter started");
   }
 
   return { start, stop() { stopped = true; if (proc) proc.kill("SIGKILL"); } };

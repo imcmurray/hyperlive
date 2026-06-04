@@ -466,7 +466,7 @@ html, body {
 @keyframes npbar { 0%, 100% { height: 22%; } 50% { height: 100%; } }
 /* reactive: heights set live from the music; CSS transition smooths between
    the ~18fps updates so motion stays fluid */
-#nowplaying.reactive .np-eq i { animation: none; transition: height 0.07s linear; }
+#nowplaying.reactive .np-eq i { animation: none; transition: height 0.045s linear; }
 .np-col { display: flex; flex-direction: column; min-width: 0; }
 .np-title { font-size: 18px; font-weight: 700; letter-spacing: 0.01em; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
 .np-sub { font-size: 13px; margin-top: 2px; color: rgba(255,255,255,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
