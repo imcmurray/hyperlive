@@ -2,33 +2,49 @@
 // the active broadcast's liveChatId (no hand-copying), polls liveChatMessages
 // (respecting pollingIntervalMillis + pageToken), parses Super Chats, and
 // re-discovers the chat when a broadcast ends — so it survives going off/on air.
+//
+// RESUME: the page cursor + a log of processed message ids are persisted to disk
+// so a restart picks up exactly where it left off (no missed messages during the
+// gap, no re-showing the backlog). YouTube's pageToken IS "everything after the
+// last message I saw"; the id log dedups across the resume boundary.
 
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import path from "node:path";
 import { config } from "./config.js";
 import { getAccessToken } from "./youtube-auth.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// NB: control/ is root-owned (the streamer container writes there), so the
+// host-run ingest can't write it — keep the cursor in a user-writable dir.
+const CURSOR_FILE = process.env.YT_CURSOR_FILE || "./state/yt-cursor.json";
+const SEEN_MAX = 800; // in-memory cap on the processed-id log (persist the tail)
+
+async function loadCursor() {
+  try { return JSON.parse(await readFile(CURSOR_FILE, "utf8")); } catch { return null; }
+}
+async function saveCursor(liveChatId, pageToken, seen) {
+  try {
+    await mkdir(path.dirname(CURSOR_FILE), { recursive: true });
+    await writeFile(CURSOR_FILE, JSON.stringify({ liveChatId, pageToken, seen: seen.slice(-300), ts: Date.now() }));
+  } catch { /* non-fatal */ }
+}
 
 function toComment(item) {
   const s = item.snippet || {};
   const a = item.authorDetails || {};
-  // Super Chat / Super Sticker arrive in the SAME feed; tier (1–5) → ytTier,
-  // which director.js scTier() maps to our small/medium/large.
   const sc = s.superChatDetails || s.superStickerDetails;
-  // YouTube custom emoji arrive as ":shortcode:" text — strip them so they don't
-  // show literally (unicode emoji like 😍 are untouched).
   const text = String(s.displayMessage || sc?.userComment || "")
-    .replace(/:[a-z0-9_+-]{2,}:/gi, "").replace(/\s{2,}/g, " ").trim();
+    .replace(/:[a-z0-9_+-]{2,}:/gi, "").replace(/\s{2,}/g, " ").trim(); // strip :shortcode: emoji
   return {
     id: item.id,
     author: a.displayName || "viewer",
     text,
-    avatar: a.profileImageUrl || "",                 // the viewer's actual avatar
-    ts: Date.parse(s.publishedAt) || Date.now(),     // when they actually typed it
+    avatar: a.profileImageUrl || "",
+    ts: Date.parse(s.publishedAt) || Date.now(),
     superchat: sc ? { ytTier: sc.tier, amount: sc.amountDisplayString } : undefined,
   };
 }
 
-// find the liveChatId of the channel's currently-active broadcast
 async function discoverLiveChatId(token) {
   const url = new URL("https://www.googleapis.com/youtube/v3/liveBroadcasts");
   url.searchParams.set("part", "snippet");
@@ -40,7 +56,6 @@ async function discoverLiveChatId(token) {
   return j.items?.[0]?.snippet?.liveChatId || "";
 }
 
-// explicit YT_LIVE_CHAT_ID wins; otherwise poll until a broadcast is live
 async function resolveLiveChatId(token) {
   if (config.yt.liveChatId) return config.yt.liveChatId;
   for (;;) {
@@ -54,13 +69,19 @@ async function resolveLiveChatId(token) {
 export async function* youtubeSource() {
   let token = await getAccessToken();
   let liveChatId = await resolveLiveChatId(token);
-  console.log(`[youtube] connected — liveChatId=${liveChatId.slice(0, 14)}…`);
 
-  let pageToken = "";
-  let first = true; // skip the historical backlog; only react to NEW messages
+  // resume from the saved cursor if it's the SAME chat — so a restart continues
+  // from the last message instead of re-skipping the backlog
+  const saved = await loadCursor();
+  const resuming = !!(saved && saved.liveChatId === liveChatId && saved.pageToken);
+  let pageToken = resuming ? saved.pageToken : "";
+  let first = !resuming;                                  // skip backlog only on a fresh start
+  const seen = new Set(resuming ? (saved.seen || []) : []);
+  console.log(`[youtube] connected — liveChatId=${liveChatId.slice(0, 14)}…${resuming ? ` (resumed, ${seen.size} seen)` : ""}`);
 
+  let lastSave = 0;
   for (;;) {
-    token = await getAccessToken(); // cached; refreshes itself near expiry
+    token = await getAccessToken();
 
     const url = new URL("https://www.googleapis.com/youtube/v3/liveChat/messages");
     url.searchParams.set("liveChatId", liveChatId);
@@ -70,15 +91,15 @@ export async function* youtubeSource() {
     let data;
     try {
       let res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.status === 401) { // token rejected mid-life → force a refresh + retry
-        token = await getAccessToken(true);
-        res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.status === 401) { token = await getAccessToken(true); res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } }); }
+      if (res.status === 400 && pageToken) { // a stale/expired pageToken → start fresh
+        console.log("[youtube] saved cursor rejected — starting fresh (skipping backlog)");
+        pageToken = ""; first = true; continue;
       }
       if (res.status === 403 || res.status === 404) { // chat ended / broadcast over
         console.log(`[youtube] chat ${res.status} — broadcast ended; re-discovering active chat…`);
         liveChatId = await resolveLiveChatId(await getAccessToken(true));
-        pageToken = ""; first = true;
-        continue;
+        pageToken = ""; first = true; continue;
       }
       if (!res.ok) { console.error(`[youtube] poll http ${res.status} — retry 5s`); await sleep(5000); continue; }
       data = await res.json();
@@ -89,10 +110,22 @@ export async function* youtubeSource() {
     }
 
     pageToken = data.nextPageToken || pageToken;
-    if (!first) for (const item of data.items || []) yield toComment(item);
+    if (!first) {
+      for (const item of data.items || []) {
+        if (seen.has(item.id)) continue;   // dedup (mainly across the resume boundary)
+        seen.add(item.id);
+        yield toComment(item);
+      }
+      if (seen.size > SEEN_MAX) { // trim the in-memory log, keep the most recent half
+        const tail = [...seen].slice(-Math.floor(SEEN_MAX / 2));
+        seen.clear(); for (const id of tail) seen.add(id);
+      }
+    }
     first = false;
 
-    // poll no faster than our quota cap, but slower if YouTube asks (quiet chat)
+    const now = Date.now();
+    if (now - lastSave > 5000) { lastSave = now; saveCursor(liveChatId, pageToken, [...seen]); }
+
     await sleep(Math.max(config.yt.minPollMs, data.pollingIntervalMillis || 3000));
   }
 }

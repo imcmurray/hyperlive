@@ -4,3 +4,4 @@ node_modules/
 control/
 .DS_Store
 dist/
+state/
