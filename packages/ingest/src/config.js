@@ -57,10 +57,16 @@ export const config = {
     // optional overrides: pin a chat id, or supply a short-lived token directly
     liveChatId: process.env.YT_LIVE_CHAT_ID || "", // blank = auto-discover the active broadcast
     accessToken: process.env.YT_ACCESS_TOKEN || "", // bypass refresh (manual/testing only)
-    // min poll interval (ms) — caps quota burn. list = 5 units/call, 10k/day:
-    //   10000 (default) ≈ 5.5h of polling; ~45000 lasts a full 24h. We still
-    //   honour YouTube's larger pollingIntervalMillis when the chat is quiet.
-    minPollMs: num(process.env.YT_MIN_POLL_MS, 10000),
+    // Adaptive polling: poll fast while chat is active, back off when it's quiet
+    // — far fewer calls/day than a fixed interval. (list = ~5 units/call,
+    // 10k units/day cap.) We never poll faster than YouTube's pollingIntervalMillis.
+    pollActiveMs: num(process.env.YT_POLL_ACTIVE_MS, 8000),  // when messages are flowing
+    pollIdleMs: num(process.env.YT_POLL_IDLE_MS, 60000),     // ramps to this when quiet
+    minPollMs: num(process.env.YT_MIN_POLL_MS, 8000),        // absolute floor (legacy)
+    // Safety: stop polling once we've spent this many quota units today, so we
+    // can't exceed the daily cap. Resets at midnight Pacific (YouTube's reset).
+    quotaLimit: num(process.env.YT_QUOTA_LIMIT, 9000),
+    unitsPerCall: num(process.env.YT_UNITS_PER_CALL, 5),
   },
 
   // --- run control ---

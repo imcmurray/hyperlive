@@ -23,6 +23,8 @@ CONTROL="${CONTROL_BASE:-http://localhost:8080}"
 MOOD_TICK_MS="${MOOD_TICK_MS:-6000}"
 ENTRY="packages/ingest/src/index.js"
 QUEUE_FILE="${MUSIC_QUEUE_FILE_HOST:-control/music-queue.json}" # DJ persists the waiting queue here
+USAGE_FILE="${YT_USAGE_FILE_HOST:-state/yt-usage.json}"          # ingest writes today's API usage here
+QUOTA_LIMIT="${YT_QUOTA_LIMIT:-9000}"                            # stop polling at this many units (10k/day cap)
 
 # PIDs of the actual node ingest. pgrep -f also matches this script, the wrapper,
 # greps, and pgrep itself if their cmdline mentions the entry — so require the
@@ -57,6 +59,7 @@ start() {
     SOURCE=youtube \
     MUTATE_URL="$MUTATE_URL" \
     MOOD_TICK_MS="$MOOD_TICK_MS" \
+    YT_QUOTA_LIMIT="$QUOTA_LIMIT" \
     node "$ENTRY" > "$LOG" 2>&1 &
   disown
   sleep 4
@@ -69,6 +72,7 @@ status() {
   grep -iE 'source=|connected|resumed' "$LOG" 2>/dev/null | tail -2
   printf '[stream] '; curl -s "$CONTROL/health" 2>/dev/null | grep -oE '"ffmpegUp":[a-z]+|"ffmpegRestarts":[0-9]+|"renderMode":"[a-z]+"' | tr '\n' ' '; echo
   printf '[music]  '; now_playing
+  printf '[quota]  '; quota_usage
   echo "[queue]"; queue_list
 }
 
@@ -84,6 +88,20 @@ now_playing() {
   queue=$(echo "$j" | grep -oE '"queue":[0-9]+' | grep -oE '[0-9]+')
   echo "$j" | grep -q '"image":"https' && cover="cover ✓" || cover="no cover"
   echo "♪ $title — $artist   ${who:+(req $who) }♥ ${likes:-0}  ▶ ${queue:-0} queued  $cover"
+}
+
+# today's YouTube API usage vs the daily cap + our cutoff (read from the ingest)
+quota_usage() {
+  node -e '
+    const fs = require("fs");
+    let u = {}; try { u = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch (e) {}
+    const limit = parseInt(process.argv[2] || "9000", 10);
+    if (typeof u.units !== "number") { console.log("(no usage yet)"); process.exit(0); }
+    const bar = Math.round((u.units / 10000) * 20);
+    const flag = u.units >= limit ? "  ⛔ CUTOFF REACHED" : (u.units >= limit * 0.8 ? "  ⚠ near cutoff" : "");
+    console.log("~" + u.units + " / 10000 units  (" + u.calls + " calls)  cutoff " + limit
+      + "  [" + "#".repeat(bar) + "-".repeat(20 - bar) + "]  " + u.date + flag);
+  ' "$USAGE_FILE" "$QUOTA_LIMIT"
 }
 
 # list the waiting request queue (read from the DJ's persisted queue file)
