@@ -443,9 +443,38 @@ html, body {
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-/* "current vibe" chip — quiet, glowing, lower-left mood caption */
+/* now-playing card (auto-DJ) — lower-left, with the vibe chip stacked above it */
+#nowplaying {
+  position: absolute; left: 40px; bottom: 36px; z-index: 7;
+  display: flex; align-items: center; gap: 14px; max-width: 460px;
+  padding: 12px 18px; border-radius: 14px;
+  background: linear-gradient(135deg, rgba(14,10,30,0.86), rgba(8,6,20,0.78));
+  border: 1px solid color-mix(in srgb, var(--c3) 38%, rgba(255,255,255,0.12));
+  box-shadow: 0 14px 40px rgba(0,0,0,0.5);
+  will-change: transform, opacity;
+}
+#nowplaying[data-show="false"] { display: none; }
+/* little equalizer bars (animate only while playing) */
+.np-eq { display: inline-flex; align-items: flex-end; gap: 3px; height: 26px; flex: 0 0 auto; }
+.np-eq i { width: 4px; height: 30%; border-radius: 2px; background: linear-gradient(var(--c3), var(--c1)); }
+#nowplaying.playing .np-eq i { animation: npbar 0.9s ease-in-out infinite; }
+.np-eq i:nth-child(1) { animation-delay: -0.1s; }
+.np-eq i:nth-child(2) { animation-delay: -0.45s; }
+.np-eq i:nth-child(3) { animation-delay: -0.25s; }
+.np-eq i:nth-child(4) { animation-delay: -0.6s; }
+@keyframes npbar { 0%, 100% { height: 22%; } 50% { height: 100%; } }
+.np-col { display: flex; flex-direction: column; min-width: 0; }
+.np-title { font-size: 18px; font-weight: 700; letter-spacing: 0.01em; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+.np-sub { font-size: 13px; margin-top: 2px; color: rgba(255,255,255,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+.np-sub .np-by { color: color-mix(in srgb, var(--c3) 80%, #fff); }
+.np-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; margin-left: auto; padding-left: 8px; }
+.np-likes { font-size: 15px; font-weight: 700; color: #ff5e87; text-shadow: 0 0 12px rgba(255,94,135,0.5); white-space: nowrap; }
+.np-queue { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.55); white-space: nowrap; }
+.np-queue[data-show="false"] { display: none; }
+
+/* "current vibe" chip — quiet, glowing, lower-left mood caption (above now-playing) */
 #vibe {
-  position: absolute; left: 96px; bottom: 96px; z-index: 6;
+  position: absolute; left: 96px; bottom: 124px; z-index: 6;
   font-size: 15px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--c3); opacity: 0.85; white-space: nowrap;
   text-shadow: 0 0 14px color-mix(in srgb, var(--c3) 45%, transparent);

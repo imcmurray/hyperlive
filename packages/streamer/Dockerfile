@@ -12,6 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       xvfb \
       x11-utils \
       dumb-init \
+      # audio: a virtual PulseAudio sink the DJ plays into and ffmpeg captures,
+      # so songs switch live without ever restarting the RTMP push. mpv = player.
+      pulseaudio \
+      pulseaudio-utils \
+      mpv \
       fonts-liberation \
       fonts-noto-color-emoji \
       fonts-noto-cjk \

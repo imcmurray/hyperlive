@@ -38,6 +38,11 @@ export const config = {
   voteDurationMs: num(process.env.VOTE_DURATION_MS, 75000),
   voteCooldownMs: num(process.env.VOTE_COOLDOWN_MS, 8000),  // gap before a new round can open
 
+  // --- Music: Suno-link requests + per-song likes (forwarded to the streamer) ---
+  music: (process.env.MUSIC || "on").toLowerCase() !== "off",
+  // streamer music control plane — same host as /mutate, under /music
+  musicUrl: (process.env.MUSIC_URL || (process.env.MUTATE_URL || "http://localhost:8080/mutate").replace(/\/mutate\/?$/, "/music")),
+
   // --- Fun Layer: instant emoji reactions + first-time welcome ---
   reactions: (process.env.REACTIONS || "on").toLowerCase() !== "off",
   // on-screen "typed → on-scene" latency readout

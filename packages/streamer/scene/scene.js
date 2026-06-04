@@ -940,6 +940,33 @@
       return { ok: true, winner };
     },
 
+    // ---- now-playing card (auto-DJ) -------------------------------------
+    // title/artist/who from the DJ; likes + queue count from chat. Empty title
+    // hides the card (e.g. nothing resolved yet).
+    setNowPlaying(p = {}) {
+      const el = $("#nowplaying");
+      if (!el) return { ok: false };
+      const title = clean(p.title, 60);
+      if (!title) { el.dataset.show = "false"; el.classList.remove("playing"); return { ok: true, show: false }; }
+      const artist = clean(p.artist, 40);
+      const who = clean(p.who, 40);
+      const likes = clampNum(p.likes, 0, 1e6, 0) | 0;
+      const queue = clampNum(p.queue, 0, 1e6, 0) | 0;
+      const set = (sel, txt) => { const n = el.querySelector(sel); if (n) n.textContent = txt; };
+      set(".np-title", title);
+      set(".np-artist", artist);
+      set(".np-by", who ? "  ·  req by " + who : "");
+      set(".np-like-count", String(likes));
+      set(".np-queue-count", String(queue));
+      const q = el.querySelector(".np-queue");
+      if (q) q.dataset.show = queue > 0 ? "true" : "false";
+      const first = el.dataset.show !== "true";
+      el.dataset.show = "true";
+      el.classList.add("playing");
+      if (gsap && first) gsap.fromTo(el, { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" });
+      return { ok: true, title, likes, queue };
+    },
+
     // show/hide the CPU-rendering warning banner (operator can dismiss it)
     renderWarning(p = {}) { showWarning(p.show !== false); return { show: p.show !== false }; },
   };

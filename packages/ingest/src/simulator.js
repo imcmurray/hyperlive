@@ -46,6 +46,14 @@ const PLAIN = ["hi everyone", "first time here!", "what is this 👀", "how does
 const NAMES = ["nova", "pixel", "echo", "riff", "lumen", "vortex", "gizmo", "flux", "halo", "sol", "zen", "kit", "mox", "wren", "ivy", "juno", "bee", "fox", "sky", "rune", "ash", "dot", "ember", "koi"];
 // a few popular themes the simulated crowd will campaign for via "!theme:x" ballots
 const VOTE_THEMES = ["forest", "ocean", "synthwave", "aurora", "ember", "frost", "neon"];
+// Suno share links the simulated crowd "requests" (the operator's own songs, so
+// the demo exercises the queue) + ways listeners show a song some love
+const SUNO_LINKS = [
+  "https://suno.com/s/i6L6bOSa8hqcgJSq", "https://suno.com/s/Df1Usfrjl53ilzIl",
+  "https://suno.com/s/Ds3vKquYkfWr6keP", "https://suno.com/s/epl8OZSyueDkawUc",
+  "https://suno.com/s/CpP5WssHaGE680Pp", "https://suno.com/s/jbylIBvANe5Ieffa",
+];
+const LIKES = ["!like", "❤️", "👍", "this song ❤️", "!like"];
 
 export async function* liveSimulatorSource() {
   let n = 0;
@@ -57,13 +65,17 @@ export async function* liveSimulatorSource() {
       const fresh = Math.random() < 0.4; // ~40% brand-new author → fires a welcome
       const author = "@" + pick(NAMES) + (fresh ? n : 1 + ((Math.random() * 5) | 0));
       const r = Math.random();
-      // ~14% of comments are theme ballots (consumed as votes, not shown) so a
-      // vote round visibly opens, fills, and resolves during the live demo
+      // ~14% theme ballots, ~6% song requests, ~12% song love — the rest is chat.
+      // (ballots/requests/likes are consumed, not shown; they drive the panels.)
       const text = r < 0.14
         ? `!theme:${pick(VOTE_THEMES)}`
-        : surge
-          ? (r < 0.62 ? pick(HYPE) : r < 0.82 ? pick(PLAIN) : pick(WARM))
-          : (r < 0.5 ? pick(CALM) : r < 0.85 ? pick(PLAIN) : pick(WARM));
+        : r < 0.20
+          ? pick(SUNO_LINKS)
+          : r < 0.32
+            ? pick(LIKES)
+            : surge
+              ? (r < 0.62 ? pick(HYPE) : r < 0.82 ? pick(PLAIN) : pick(WARM))
+              : (r < 0.5 ? pick(CALM) : r < 0.85 ? pick(PLAIN) : pick(WARM));
       const c = { id: `live-${n}`, author, text };
       // synthetic "typed N ms ago" so the on-scene delay readout looks realistic
       // (real YouTube uses the actual publishedAt timestamp)

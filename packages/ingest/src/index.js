@@ -11,6 +11,7 @@ import { createMoodState } from "./mood-state.js";
 import { createMoodEngine } from "./mood.js";
 import { createReactions } from "./reactions.js";
 import { createVotes } from "./votes.js";
+import { createMusic, parseSunoShare, isLikeCommand, hasHeart } from "./music.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
 import { youtubeSource } from "./youtube.js";
 
@@ -19,6 +20,7 @@ const director = createDirector();
 const moodState = createMoodState({ windowMs: config.moodWindowMs });
 const reactions = createReactions({ postMutate, log: console.log });
 const votes = createVotes({ postMutate, log: console.log });
+const music = createMusic({ baseUrl: config.musicUrl });
 
 let processed = 0;
 let applied = 0;
@@ -67,6 +69,31 @@ async function handle(comment) {
 
   // feed the Collective Mood Engine (only moderated comments reach the aggregate)
   moodState.record(comment);
+
+  // Music: a Suno share link is CONSUMED as a queue request; "!like" is CONSUMED
+  // as a like for the current song; a heart/👍 in normal chat also likes the
+  // song but falls through (so the heart reaction still fires).
+  if (config.music) {
+    const link = parseSunoShare(comment.text);
+    if (link) {
+      const r = await music.enqueue(link, comment.author).catch(() => ({ ok: false }));
+      if (r.ok) {
+        console.log(`  ♪ QUEUE ${comment.author} → ${r.title} — ${r.artist} [#${r.position}]`);
+        postMutate({ action: "react", params: { kind: "sparkle", who: comment.author } }).catch(() => {});
+      } else {
+        console.log(`  ♪ queue rejected [${r.reason || "?"}] ${comment.author}`);
+      }
+      await audit({ stage: "music_request", comment, link, result: r });
+      return;
+    }
+    if (isLikeCommand(comment.text)) {
+      const r = await music.like(comment.author).catch(() => ({}));
+      console.log(`  ♪ LIKE  ${comment.author} (${r.likes ?? 0})`);
+      await audit({ stage: "music_like", comment });
+      return;
+    }
+    if (hasHeart(comment.text)) music.like(comment.author).catch(() => {}); // side-effect, fall through
+  }
 
   // Vote ballots ("!theme:x") are CONSUMED here — they drive a vote round and
   // are never shown as a message or sent to the director.

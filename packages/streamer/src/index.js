@@ -7,6 +7,7 @@ import express from "express";
 import puppeteer from "puppeteer-core";
 import { config, ingestUrl } from "./config.js";
 import { startStreamer, startScreencastStreamer } from "./ffmpeg.js";
+import { createDJ } from "./music/dj.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCENE_DIR = path.resolve(__dirname, "../scene");
@@ -31,6 +32,7 @@ const ALLOWED_ACTIONS = new Set([
   "voteStart",
   "voteUpdate",
   "voteEnd",
+  "setNowPlaying",
   "renderWarning",
   "status",
 ]);
@@ -38,6 +40,7 @@ const ALLOWED_ACTIONS = new Set([
 let page = null;
 let streamer = null;
 let browser = null;
+let dj = null;        // auto-DJ daemon (music)
 let renderMode = "?"; // gpu | cpu
 let gpuRenderer = "";
 
@@ -100,6 +103,22 @@ function buildControlApp() {
 
   // list of valid actions, for tooling / sanity
   app.get("/actions", (_req, res) => res.json({ actions: [...ALLOWED_ACTIONS] }));
+
+  // --- music control plane: the ingest posts chat requests/likes here ---
+  // queue a requested Suno share link (resolved + CDN-allowlisted by the DJ)
+  app.post("/music/enqueue", async (req, res) => {
+    if (!dj) return res.status(503).json({ ok: false, reason: "music off" });
+    const out = await dj.enqueue(String(req.body?.link || ""), String(req.body?.who || ""));
+    res.status(out.ok ? 200 : 400).json(out);
+  });
+  // like the currently-playing song (one per author per song)
+  app.post("/music/like", (req, res) => {
+    if (!dj) return res.status(503).json({ ok: false });
+    res.json(dj.like(String(req.body?.who || "")));
+  });
+  // operator skip + status
+  app.post("/music/skip", (_req, res) => { if (dj) dj.skip(); res.json({ ok: !!dj }); });
+  app.get("/music/status", (_req, res) => res.json(dj ? dj.status() : { ok: false, music: false }));
 
   // report the WebGL renderer (proxy for whether the GPU is hardware-accelerated)
   app.get("/gpu", async (_req, res) => {
@@ -318,9 +337,21 @@ async function main() {
 
   watchDirectives(); // fire and forget
 
+  // auto-DJ: resolves the rotation, plays into the pulse sink ffmpeg captures,
+  // and pushes now-playing/likes/queue to the scene. Only when AUDIO_MODE=music.
+  if (config.music) {
+    dj = createDJ({
+      onUpdate: (st) => { applyDirective({ action: "setNowPlaying", params: st }).catch(() => {}); },
+      log: console.log,
+    });
+    dj.start().catch((e) => console.error("[dj] start failed:", e.message));
+    console.log("[music] auto-DJ enabled (AUDIO_MODE=music)");
+  }
+
   // graceful shutdown
   const shutdown = async (sig) => {
     console.log(`\n[shutdown] ${sig} received`);
+    if (dj) dj.stop();
     if (streamer) streamer.stop();
     if (browser) await browser.close().catch(() => {});
     server.close();

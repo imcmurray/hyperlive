@@ -26,5 +26,22 @@ done
 # ensure Xvfb is reaped if node exits
 trap 'kill ${XVFB_PID} 2>/dev/null || true' EXIT
 
+# --- audio: virtual PulseAudio sink the auto-DJ plays into and ffmpeg captures.
+# Only needed when streaming music. Exported XDG_RUNTIME_DIR is inherited by the
+# node orchestrator (and the ffmpeg/mpv children it spawns) so they find pulse.
+if [ "${AUDIO_MODE:-silent}" = "music" ]; then
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/pulse-runtime}"
+  mkdir -p "${XDG_RUNTIME_DIR}" && chmod 700 "${XDG_RUNTIME_DIR}"
+  SINK="${PULSE_SINK:-hyperlive}"
+  echo "[start] launching PulseAudio + null sink '${SINK}'"
+  pulseaudio -D --exit-idle-time=-1 --disable-shm=true -n \
+    --load="module-null-sink sink_name=${SINK} sink_properties=device.description=${SINK}" \
+    --load="module-native-protocol-unix" || echo "[start] WARN: pulseaudio returned nonzero"
+  for i in $(seq 1 30); do
+    if pactl list short sinks 2>/dev/null | grep -q "${SINK}"; then echo "[start] sink '${SINK}' ready"; break; fi
+    sleep 0.2
+  done
+fi
+
 export DISPLAY="${DISPLAY_NUM}"
 exec node src/index.js

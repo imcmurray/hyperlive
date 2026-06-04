@@ -3,8 +3,12 @@ import { config, ingestUrl } from "./config.js";
 
 const RENDER_NODE = process.env.RENDER_NODE || "/dev/dri/renderD128";
 
-// constant audio source (YouTube requires audio even when silent)
+// audio source (YouTube requires an audio track even when silent).
+//  music → capture the PulseAudio sink the auto-DJ plays into (live, switchable)
+//  tone  → a test sine; silent → anullsrc
 function audioInput() {
+  if (config.audioMode === "music")
+    return ["-thread_queue_size", "1024", "-f", "pulse", "-i", config.pulseMonitor];
   return config.audioMode === "tone"
     ? ["-f", "lavfi", "-i", "sine=frequency=220:sample_rate=44100"]
     : ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"];

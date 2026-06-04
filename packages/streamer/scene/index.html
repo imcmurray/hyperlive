@@ -106,6 +106,19 @@
       <!-- subtle "current vibe" chip — the Collective Mood Engine's descriptor -->
       <div id="vibe" data-show="false"></div>
 
+      <!-- now-playing card (auto-DJ): track + requester + like meter + queue -->
+      <div id="nowplaying" data-show="false">
+        <span class="np-eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <div class="np-col">
+          <div class="np-title">—</div>
+          <div class="np-sub"><span class="np-artist"></span><span class="np-by"></span></div>
+        </div>
+        <div class="np-side">
+          <div class="np-likes">♥ <span class="np-like-count">0</span></div>
+          <div class="np-queue" data-show="false">▶ <span class="np-queue-count">0</span> queued</div>
+        </div>
+      </div>
+
       <!-- CPU-rendering performance warning (shown only on GPU fallback) -->
       <div id="render-warning" data-show="false">
         ⚠ CPU RENDERING — GPU not detected; performance is limited
