@@ -68,6 +68,9 @@
   // pre-validated (known theme keys + labels); we clean() defensively anyway.
   let voteTimerTween = null; // counts the round's remaining time down
   let voteHideTl = null;
+  let voteActive = false;    // a round is on screen (until its countdown + result finish)
+  let voteEndsAt = 0;        // when the current countdown is due (for stale-round recovery)
+  let voteKeys = "";         // the live round's locked option keys — reject foreign updates
   function voteShow(on) {
     const el = $("#vote");
     if (!el) return;
@@ -424,17 +427,22 @@
   }
   function spawnWelcome(who, url) {
     const host = reactHost(); if (!host || !gsap) return;
-    const cx = 340 + Math.random() * 600, cy = 230 + Math.random() * 240;
+    const cx = 340 + Math.random() * 600, cy = 250 + Math.random() * 190;
     const g = document.createElement("span"); g.className = "react-glow"; g.style.left = cx + "px"; g.style.top = cy + "px"; host.appendChild(g);
     gsap.fromTo(g, { scale: 0.2, opacity: 0.5 }, { scale: 2.4, opacity: 0, duration: 1.7, ease: "power2.out", onComplete: () => g.remove() });
     rspark(cx, cy, 7, "", 55, 0);
-    // the newcomer's actual avatar pops at the glow center — "the room noticed YOU"
-    const av = avatarEl(who, url, 58);
-    av.style.position = "absolute"; av.style.left = (cx - 29) + "px"; av.style.top = (cy - 29) + "px";
-    host.appendChild(av);
-    gsap.fromTo(av, { scale: 0, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "back.out(2)" });
-    gsap.to(av, { y: -28, opacity: 0, duration: 1.0, delay: 1.7, ease: "power1.in", onComplete: () => av.remove() });
-    floatName(who ? ("welcome, " + who) : "welcome!", cx, cy + 40, "#9affd0");
+    // stacked + centered on the glow: avatar over "welcome" over the name
+    const box = document.createElement("div"); box.className = "welcome-pop";
+    box.style.left = cx + "px"; box.style.top = cy + "px";
+    box.appendChild(avatarEl(who, url, 58));
+    const w = document.createElement("div"); w.className = "welcome-word"; w.textContent = "welcome";
+    box.appendChild(w);
+    const nm = clean(who, 28);
+    if (nm) { const n = document.createElement("div"); n.className = "welcome-name"; n.textContent = nm; box.appendChild(n); }
+    host.appendChild(box);
+    gsap.set(box, { xPercent: -50, yPercent: -50 }); // center the stack on (cx,cy) without fighting gsap's transform
+    gsap.fromTo(box, { scale: 0, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "back.out(2)" });
+    gsap.to(box, { y: -28, opacity: 0, duration: 1.1, delay: 1.9, ease: "power1.in", onComplete: () => box.remove() });
   }
   const REACT_FN = {
     fire: () => spawnFire(), love: (who) => spawnHearts(who), sparkle: () => spawnSparkle(),
@@ -798,7 +806,7 @@
       }
 
       const cards = wrap.querySelectorAll(".shoutout");
-      for (let i = 5; i < cards.length; i++) cards[i].remove();
+      for (let i = 8; i < cards.length; i++) cards[i].remove();
       return { ok: true, tier };
     },
 
@@ -879,7 +887,13 @@
     voteStart(p = {}) {
       const el = $("#vote");
       if (!el) return { ok: false };
+      // ONE vote at a time: ignore a new round while one is live so a second
+      // engine/late call can't open a duplicate panel or cut the countdown
+      // short. The stale guard recovers if a round's result never arrived.
+      if (voteActive && Date.now() < voteEndsAt + 5000) return { ok: false, ignored: "vote already active" };
+      voteActive = true;
       const ms = clampNum(p.durationMs, 2000, 300000, 30000);
+      voteEndsAt = Date.now() + ms;
       const title = $(".vote-title");
       if (title) title.textContent = clean(p.title, 28) || "VOTE THE NEXT THEME";
       if (voteHideTl) { voteHideTl.kill(); voteHideTl = null; }
@@ -887,6 +901,7 @@
       const wrap = $("#vote-options"); // fresh slate per round (clears the prior round's rows)
       if (wrap) wrap.innerHTML = "";
       renderVoteOptions(p.options, p.leader);
+      voteKeys = (Array.isArray(p.options) ? p.options : []).map((o) => o && o.key).filter(Boolean).sort().join(",");
       voteShow(true);
       if (gsap) {
         gsap.killTweensOf(el, "opacity,y,scale");
@@ -909,8 +924,13 @@
       return { ok: true, durationMs: ms };
     },
 
-    // live tally update during a round
+    // live tally update during a round — only for the live round's own options
+    // (a different/duplicate engine's update with other themes is rejected, so
+    // it can't swap the options out from under a vote in progress)
     voteUpdate(p = {}) {
+      if (!voteActive) return { ok: false, ignored: "no active vote" };
+      const keys = (Array.isArray(p.options) ? p.options : []).map((o) => o && o.key).filter(Boolean).sort().join(",");
+      if (voteKeys && keys && keys !== voteKeys) return { ok: false, ignored: "foreign vote update" };
       renderVoteOptions(p.options, p.leader);
       return { ok: true };
     },
@@ -929,13 +949,14 @@
         renderVoteOptions(p.options || [{ key: winner, label, votes: p.votes || 1 }], winner);
         if (gsap) SceneAPI.burst({ intensity: 0.4 });
       }
-      // hold the result on screen, then dismiss
+      // hold the result on screen, then dismiss (voteActive clears only once the
+      // panel is fully gone → the next round can't start until this one finishes)
       if (gsap) {
         voteHideTl = gsap.timeline({ delay: winner ? 2.6 : 0.2 });
         voteHideTl.to(el, { opacity: 0, y: 16, scale: 0.96, duration: 0.5, ease: "power2.in",
-          onComplete: () => { voteShow(false); el.classList.remove("vote-won"); } });
+          onComplete: () => { voteShow(false); el.classList.remove("vote-won"); voteActive = false; voteKeys = ""; } });
       } else {
-        voteShow(false);
+        voteShow(false); voteActive = false; voteKeys = "";
       }
       return { ok: true, winner };
     },

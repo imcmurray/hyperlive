@@ -313,12 +313,12 @@ html, body {
 /* ====================== shoutouts (comment / SC) ======================== */
 #shoutouts {
   position: absolute; right: 40px; top: 40px; z-index: 5;
-  display: flex; flex-direction: column; gap: 14px; align-items: flex-end; width: 430px;
+  display: flex; flex-direction: column; gap: 9px; align-items: flex-end; width: 430px;
 }
 .shoutout {
   position: relative; width: 100%; overflow: hidden;
   display: flex; align-items: center; gap: 12px;
-  border-radius: 16px; padding: 14px 20px 14px 24px;
+  border-radius: 16px; padding: 10px 18px 10px 22px;
   background: linear-gradient(135deg, rgba(16,12,32,0.82), rgba(10,8,22,0.72));
   border: 1px solid rgba(255,255,255,0.12);
   box-shadow: 0 14px 44px rgba(0,0,0,0.5);
@@ -372,8 +372,8 @@ html, body {
   box-shadow: 0 16px 44px rgba(0,0,0,0.55);
   white-space: nowrap; will-change: transform, opacity;
 }
-.tcard::before { content: "◆"; margin-right: 14px; color: var(--c1); font-size: 16px; }
-.tcard-label { font-size: 23px; font-weight: 700; letter-spacing: 0.01em; color: #f5f3ff; }
+.tcard::before { content: "◆"; margin-right: 12px; color: var(--c1); font-size: 14px; }
+.tcard-label { font-size: 19px; font-weight: 700; letter-spacing: 0.01em; color: #f5f3ff; }
 /* countdown dots: light up one at a time across the card's hold time */
 .tcard-dots {
   position: absolute; left: 0; right: 0; bottom: 9px;
@@ -423,6 +423,20 @@ html, body {
 #fx-react .react-glow {
   position: absolute; width: 180px; height: 180px; margin: -90px 0 0 -90px; border-radius: 50%;
   background: radial-gradient(circle, var(--c3), transparent 68%); will-change: transform, opacity;
+}
+/* first-time welcome: avatar over "welcome" over the name, centered + stacked */
+#fx-react .welcome-pop {
+  position: absolute; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  white-space: nowrap; will-change: transform, opacity; pointer-events: none;
+}
+#fx-react .welcome-pop .avatar { width: 58px; height: 58px; }
+#fx-react .welcome-word {
+  font-size: 17px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase;
+  color: #9affd0; text-shadow: 0 0 12px rgba(0,0,0,0.75);
+}
+#fx-react .welcome-name {
+  font-size: 16px; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--c3); text-shadow: 0 0 12px rgba(0,0,0,0.75);
 }
 
 /* typed→on-scene latency readout — tucked into the very bottom-right corner */
