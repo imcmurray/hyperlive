@@ -33,17 +33,29 @@ const LABELS = {
   void: "Void", plasma: "Plasma", noir: "Noir", solar: "Solar", holo: "Holo",
 };
 
-// "!theme:forest" / "!theme forest" / "!theme = forest" — the whole comment must
-// be the command (so normal chat mentioning a theme word isn't swallowed).
-const VOTE_RE = /^\s*!\s*theme\s*[:=\s]\s*([a-z0-9]+)\s*$/i;
+// Explicit opener: "!theme forest" / "!vote forest" (colon also works, but the
+// space form dodges YouTube's emoji autocomplete on ":x"). Opens a round.
+const VOTE_RE = /^\s*!\s*(?:theme|vote)\s*[:=\s]\s*([a-z0-9]+)\s*$/i;
 
-export function parseThemeVote(text) {
-  const m = String(text ?? "").match(VOTE_RE);
-  if (!m) return null;
-  const key = m[1].toLowerCase();
+function toThemeKey(word) {
+  const key = String(word || "").toLowerCase();
   if (THEMES.includes(key)) return key;
   const alias = THEME_ALIASES[key];
   return alias && THEMES.includes(alias) ? alias : null;
+}
+
+export function parseThemeVote(text) {
+  const m = String(text ?? "").match(VOTE_RE);
+  return m ? toThemeKey(m[1]) : null;
+}
+
+// Hotword voting: once a round is open, its options become hotwords. A comment
+// containing one of the candidate names (as a whole word) is a vote for it —
+// only while the round is live; first candidate mentioned wins ties.
+export function matchCandidate(text, candidates) {
+  const toks = " " + String(text ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+  for (const key of candidates) if (toks.includes(" " + key + " ")) return key;
+  return null;
 }
 
 export function createVotes({ postMutate, log = () => {} }) {
@@ -108,25 +120,35 @@ export function createVotes({ postMutate, log = () => {} }) {
     setTimeout(() => postMutate({ action: "transitionTheme", params: { theme: winner.key, duration: 2.5 } }).catch(() => {}), 900);
   }
 
+  function cast(author, theme) {
+    round.ballots.set(author, theme); // last vote wins; spamming can't stuff the ballot
+    const now = Date.now();
+    if (now - round.lastPush > 350) { round.lastPush = now; pushUpdate(); }
+  }
+
   return {
-    // returns the theme key if the comment was a ballot (so the caller consumes
-    // it and shows nothing), or null if it's an ordinary comment.
+    // Returns "consumed" if the comment was an explicit !theme/!vote command (so
+    // the caller hides it), else null. Hotword votes (a candidate name in normal
+    // chat during a live round) are cast as a SIDE EFFECT and NOT consumed — the
+    // comment still shows, it just also counts.
     handle(comment) {
-      const theme = parseThemeVote(comment.text);
-      if (!theme) return null;
       const author = comment.author || "anon";
+
+      // explicit opener/vote: "!theme forest" / "!vote forest"
+      const cmd = parseThemeVote(comment.text);
+      if (cmd) {
+        if (round) { if (round.candidates.includes(cmd)) cast(author, cmd); }
+        else if (Date.now() >= cooldownUntil) startRound(cmd, author);
+        return cmd; // consumed (it's a command, not a message)
+      }
+
+      // hotword: only while a round is live, only its options, only comments that
+      // arrive during the round. Side-effect vote; comment flows on normally.
       if (round) {
-        // only the locked options count; a ballot for any other theme is still
-        // consumed (never shown as chat) but does not change the ballot
-        if (round.candidates.includes(theme)) {
-          round.ballots.set(author, theme); // last vote wins; spamming can't stuff the ballot
-          const now = Date.now();
-          if (now - round.lastPush > 350) { round.lastPush = now; pushUpdate(); }
-        }
-      } else if (Date.now() >= cooldownUntil) {
-        startRound(theme, author);
-      } // else: brief post-round cooldown — ballot is still consumed, just ignored
-      return theme;
+        const hit = matchCandidate(comment.text, round.candidates);
+        if (hit) cast(author, hit);
+      }
+      return null;
     },
     stop() { if (round?.timer) clearTimeout(round.timer); round = null; },
     active() { return !!round; },

@@ -14,10 +14,14 @@ function toComment(item) {
   // Super Chat / Super Sticker arrive in the SAME feed; tier (1–5) → ytTier,
   // which director.js scTier() maps to our small/medium/large.
   const sc = s.superChatDetails || s.superStickerDetails;
+  // YouTube custom emoji arrive as ":shortcode:" text — strip them so they don't
+  // show literally (unicode emoji like 😍 are untouched).
+  const text = String(s.displayMessage || sc?.userComment || "")
+    .replace(/:[a-z0-9_+-]{2,}:/gi, "").replace(/\s{2,}/g, " ").trim();
   return {
     id: item.id,
     author: a.displayName || "viewer",
-    text: s.displayMessage || sc?.userComment || "",
+    text,
     avatar: a.profileImageUrl || "",                 // the viewer's actual avatar
     ts: Date.parse(s.publishedAt) || Date.now(),     // when they actually typed it
     superchat: sc ? { ytTier: sc.tier, amount: sc.amountDisplayString } : undefined,
