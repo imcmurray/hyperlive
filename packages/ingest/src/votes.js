@@ -116,8 +116,8 @@ export function createVotes({ postMutate, log = () => {} }) {
     log(`  ⚑ vote WON: ${winner.key} (${winner.votes} vote${winner.votes === 1 ? "" : "s"})`);
     postMutate({ action: "voteEnd", params: { winner: winner.key, winnerLabel: winner.label, votes: winner.votes, options: opts } })
       .catch(() => {});
-    // apply the theme after a beat, so the winner highlight is seen first
-    setTimeout(() => postMutate({ action: "transitionTheme", params: { theme: winner.key, duration: 2.5 } }).catch(() => {}), 900);
+    // apply the theme AFTER the countdown hits zero + a clear "wins!" beat
+    setTimeout(() => postMutate({ action: "transitionTheme", params: { theme: winner.key, duration: 2.5 } }).catch(() => {}), 1500);
   }
 
   function cast(author, theme) {

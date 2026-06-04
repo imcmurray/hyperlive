@@ -66,7 +66,7 @@
   // ---- collective theme vote panel ----------------------------------------
   // The engine owns the ballot state; the scene only renders. Options arrive
   // pre-validated (known theme keys + labels); we clean() defensively anyway.
-  let voteTimerTween = null; // counts the round's remaining time down
+  let voteTickerFn = null;   // per-frame countdown updater (real-time based)
   let voteHideTl = null;
   let voteActive = false;    // a round is on screen (until its countdown + result finish)
   let voteEndsAt = 0;        // when the current countdown is due (for stale-round recovery)
@@ -908,19 +908,25 @@
         gsap.fromTo(el, { opacity: 0, y: 24, scale: 0.94 },
           { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.5)" });
       }
-      // countdown: fill shrinks full→empty; timer text ticks whole seconds
+      // Countdown driven by REAL elapsed time (not a GSAP tween): GSAP's lag
+      // smoothing slows tweens on render hiccups, which would let the visual
+      // countdown drift behind the engine's wall-clock timer and make the theme
+      // swap look early. Reading performance.now() each frame stays true to the
+      // same clock the engine ends the round on.
       const fill = $("#vote-progress-fill");
       const timer = $("#vote-timer");
-      if (voteTimerTween) { voteTimerTween.kill(); voteTimerTween = null; }
-      if (gsap) {
-        if (fill) gsap.fromTo(fill, { width: "100%" }, { width: "0%", duration: ms / 1000, ease: "none" });
-        const t = { v: ms };
-        voteTimerTween = gsap.to(t, { v: 0, duration: ms / 1000, ease: "none",
-          onUpdate: () => { if (timer) timer.textContent = Math.ceil(t.v / 1000) + "s"; },
-          onComplete: () => { if (timer) timer.textContent = "0s"; } });
-      } else if (timer) {
-        timer.textContent = Math.ceil(ms / 1000) + "s";
-      }
+      if (voteTickerFn && gsap) { gsap.ticker.remove(voteTickerFn); voteTickerFn = null; }
+      const now0 = (window.performance ? performance.now() : Date.now());
+      const endsAtClock = now0 + ms;
+      const tick = () => {
+        const t = (window.performance ? performance.now() : Date.now());
+        const remain = Math.max(0, endsAtClock - t);
+        if (fill) fill.style.width = ((remain / ms) * 100).toFixed(1) + "%";
+        if (timer) timer.textContent = Math.ceil(remain / 1000) + "s";
+        if (remain <= 0 && voteTickerFn && gsap) { gsap.ticker.remove(voteTickerFn); voteTickerFn = null; }
+      };
+      tick();
+      if (gsap) { voteTickerFn = tick; gsap.ticker.add(tick); }
       return { ok: true, durationMs: ms };
     },
 
@@ -939,7 +945,7 @@
     voteEnd(p = {}) {
       const el = $("#vote");
       if (!el) return { ok: false };
-      if (voteTimerTween) { voteTimerTween.kill(); voteTimerTween = null; }
+      if (voteTickerFn && gsap) { gsap.ticker.remove(voteTickerFn); voteTickerFn = null; }
       const winner = THEMES.includes(p.winner) ? p.winner : null;
       const timer = $("#vote-timer");
       if (winner) {
