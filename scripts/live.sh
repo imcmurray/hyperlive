@@ -148,11 +148,18 @@ next_song() {
   printf '  '; now_playing
 }
 
-# operator: standby landing screen (intro/outro) or reveal the live show (off)
+# operator: standby landing screen (intro/outro) or reveal the live show (off).
+# outro slowly fades the music out; onair fades it back up.
 standby() {
+  local mode="$1"
   curl -s -X POST "$MUTATE_URL" -H 'content-type: application/json' \
-    -d "{\"action\":\"setStandby\",\"params\":{\"mode\":\"$1\"}}" >/dev/null \
-    && echo "[live] standby → $1" || echo "[live] failed (is the streamer up?)"
+    -d "{\"action\":\"setStandby\",\"params\":{\"mode\":\"$mode\"}}" >/dev/null \
+    || { echo "[live] failed (is the streamer up?)"; return 1; }
+  case "$mode" in
+    outro) curl -s -X POST "$CONTROL/music/fade" -H 'content-type: application/json' -d '{"to":0,"ms":6000}'   >/dev/null; echo "[live] standby → outro (music fading out…)" ;;
+    off)   curl -s -X POST "$CONTROL/music/fade" -H 'content-type: application/json' -d '{"to":100,"ms":1800}' >/dev/null; echo "[live] on air (music up)" ;;
+    *)     echo "[live] standby → $mode" ;;
+  esac
 }
 
 case "${1:-status}" in

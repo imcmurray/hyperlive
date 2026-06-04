@@ -37,6 +37,28 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
     return [];
   }
 
+  // --- volume fade (ramp the pulse sink volume → what ffmpeg captures) ---
+  let sinkVol = 100;          // current sink volume %
+  let fadeTimer = null;
+  function applySinkVol(pct) {
+    sinkVol = Math.max(0, Math.min(100, Math.round(pct)));
+    try { spawn("pactl", ["set-sink-volume", config.pulseSink, sinkVol + "%"], { stdio: "ignore" }); } catch { /* no pulse */ }
+  }
+  function fade(target, ms) {
+    if (fadeTimer) { clearInterval(fadeTimer); fadeTimer = null; }
+    target = Math.max(0, Math.min(100, Number(target)));
+    const dur = Math.max(100, Number(ms) || 4000);
+    const steps = Math.max(1, Math.round(dur / 120));
+    const start = sinkVol, delta = (target - start) / steps;
+    let i = 0;
+    log(`  ♪ fade ${start}% → ${target}% over ${dur}ms`);
+    fadeTimer = setInterval(() => {
+      i += 1;
+      applySinkVol(i >= steps ? target : start + delta * i);
+      if (i >= steps) { clearInterval(fadeTimer); fadeTimer = null; }
+    }, 120);
+  }
+
   function status() {
     return {
       title: current?.title || "",
@@ -141,7 +163,8 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
     },
 
     skip() { if (player) { log("  ♪ skip"); player.kill("SIGTERM"); } },
+    fade,                       // fade(targetPct, ms) — outro fade-out / onair fade-in
     status,
-    stop() { stopped = true; if (player) player.kill("SIGKILL"); },
+    stop() { stopped = true; if (fadeTimer) clearInterval(fadeTimer); if (player) player.kill("SIGKILL"); },
   };
 }

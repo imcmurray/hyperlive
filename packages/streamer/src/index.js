@@ -122,6 +122,13 @@ function buildControlApp() {
   });
   // operator skip + status
   app.post("/music/skip", (_req, res) => { if (dj) dj.skip(); res.json({ ok: !!dj }); });
+  // fade the music volume (outro fade-out / onair fade-in). { to: 0..100, ms }
+  app.post("/music/fade", (req, res) => {
+    if (!dj) return res.status(503).json({ ok: false });
+    const to = Number(req.body?.to), ms = Number(req.body?.ms);
+    dj.fade(Number.isFinite(to) ? to : 0, Number.isFinite(ms) ? ms : 4000);
+    res.json({ ok: true, to, ms });
+  });
   app.get("/music/status", (_req, res) => res.json(dj ? dj.status() : { ok: false, music: false }));
 
   // report the WebGL renderer (proxy for whether the GPU is hardware-accelerated)
