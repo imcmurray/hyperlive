@@ -18,6 +18,7 @@
 #   scripts/live.sh intro     # show "starting shortly" landing screen
 #   scripts/live.sh outro     # show "thanks for listening" landing screen
 #   scripts/live.sh onair     # reveal the live show (hide the landing screen)
+#   scripts/live.sh json '<json>'  # JSON in/out for other systems (see scripts/live-api.mjs)
 #
 # It runs SOURCE=youtube; OAuth creds + tunables come from .env (see
 # docs/youtube-oauth.md). Override any of these via the environment:
@@ -130,15 +131,26 @@ quota_usage() {
   ' "$USAGE_FILE" "$QUOTA_LIMIT"
 }
 
-# list the waiting request queue (read from the DJ's persisted queue file)
+# list up-next: requested songs + the house rotation (from the running DJ);
+# falls back to the persisted request file when the streamer is down.
 queue_list() {
-  node -e '
-    const fs = require("fs");
-    let q = []; try { q = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch (e) {}
-    if (!Array.isArray(q) || !q.length) { console.log("  (queue empty)"); process.exit(0); }
-    q.forEach((t, i) => console.log("  " + (i + 1) + ". " + (t.title || "?") + " — " + (t.artist || "?")
-      + (t.who ? "  (req " + t.who + ")" : "") + (t.image ? "  cover ✓" : "")));
-  ' "$QUEUE_FILE" 2>/dev/null || echo "  (queue unavailable)"
+  local j; j=$(curl -s "$CONTROL/music/queue" 2>/dev/null)
+  if echo "$j" | grep -q '"rotation"'; then
+    echo "$j" | node -e '
+      let s = ""; process.stdin.on("data", d => s += d).on("end", () => { try {
+        const q = JSON.parse(s), reqs = q.queue || [], rot = q.rotation || [];
+        if (reqs.length) reqs.forEach((t, i) => console.log("  " + (i + 1) + ". " + t.title + " — " + t.artist + (t.who ? "  (req " + t.who + ")" : "") + (t.image ? "  cover ✓" : "")));
+        else console.log("  (no requests — playing the house rotation)");
+        if (rot.length) { console.log("  house rotation:"); rot.slice(0, 8).forEach((t, i) => console.log("    " + (i === 0 ? "→ " : "  ") + t.title + " — " + t.artist)); }
+      } catch (e) { console.log("  (queue unavailable)"); } });
+    '
+  else
+    node -e '
+      const fs = require("fs"); let q = []; try { q = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch (e) {}
+      if (!Array.isArray(q) || !q.length) { console.log("  (no queued requests — streamer down)"); process.exit(0); }
+      q.forEach((t, i) => console.log("  " + (i + 1) + ". " + (t.title || "?") + " — " + (t.artist || "?") + (t.who ? "  (req " + t.who + ")" : "")));
+    ' "$QUEUE_FILE" 2>/dev/null || echo "  (queue unavailable)"
+  fi
 }
 
 # operator: queue a Suno song directly. Resolve host-side first so we can show
@@ -201,5 +213,6 @@ case "${1:-status}" in
   intro)     standby intro ;;   # "starting shortly" landing screen
   outro)     standby outro ;;   # "thanks for listening" landing screen
   onair|live) standby off ;;    # reveal the live show
-  *) echo "usage: $0 {boot|down|up|build | start|stop|restart|status|logs | now|queue [<url>]|next | intro|outro|onair}"; exit 1 ;;
+  json)      shift; node scripts/live-api.mjs "${1:-status}" ;; # JSON in/out for other systems
+  *) echo "usage: $0 {boot|down|up|build | start|stop|restart|status|logs | now|queue [<url>]|next | intro|outro|onair | json '<json>'}"; exit 1 ;;
 esac

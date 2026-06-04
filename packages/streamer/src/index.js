@@ -130,6 +130,8 @@ function buildControlApp() {
     res.json({ ok: true, to, ms });
   });
   app.get("/music/status", (_req, res) => res.json(dj ? dj.status() : { ok: false, music: false }));
+  // full up-next: requested songs + the house rotation
+  app.get("/music/queue", (_req, res) => res.json(dj ? dj.queueInfo() : { ok: false, music: false }));
 
   // report the WebGL renderer (proxy for whether the GPU is hardware-accelerated)
   app.get("/gpu", async (_req, res) => {

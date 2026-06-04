@@ -70,6 +70,19 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
       queue: queue.length,
     };
   }
+  // full up-next picture: requested songs, then the house rotation (ordered so
+  // the one that plays next is first) — which fills in when no requests are queued
+  function queueInfo() {
+    const n = rotation.length;
+    const i = n ? rotIdx % n : 0;
+    const rot = n ? rotation.slice(i).concat(rotation.slice(0, i)) : [];
+    const lite = (t) => ({ title: t.title, artist: t.artist, image: t.image || "", who: t.who || "" });
+    return {
+      current: current?.title ? { ...lite(current), source: current.source || "", likes: current.likes.size } : null,
+      queue: queue.map(lite),
+      rotation: rot.map((t) => ({ title: t.title, artist: t.artist, image: t.image || "" })),
+    };
+  }
   // coalesce rapid updates (likes can arrive in bursts) into one scene push
   function pushUpdate() {
     if (updateTimer) return;
@@ -165,6 +178,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
     skip() { if (player) { log("  ♪ skip"); player.kill("SIGTERM"); } },
     fade,                       // fade(targetPct, ms) — outro fade-out / onair fade-in
     status,
+    queueInfo,                  // { current, queue:[requests], rotation:[house] }
     stop() { stopped = true; if (fadeTimer) clearInterval(fadeTimer); if (player) player.kill("SIGKILL"); },
   };
 }
