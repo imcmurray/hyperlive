@@ -31,7 +31,11 @@ export const config = {
 
   // --- Collective theme voting (!theme:x ballots → countdown round → winner) ---
   votes: (process.env.VOTES || "on").toLowerCase() !== "off",
-  voteDurationMs: num(process.env.VOTE_DURATION_MS, 30000), // countdown per round
+  // A round must outlast the round-trip: YouTube buffers the stream ~20-30s, so a
+  // viewer only SEES the vote ~30s after it opens, then their ballot takes a few
+  // more seconds to come back. Duration ≈ broadcast delay + an actual voting
+  // window, or delayed viewers get no chance to vote. 75s = ~30s delay + ~45s.
+  voteDurationMs: num(process.env.VOTE_DURATION_MS, 75000),
   voteCooldownMs: num(process.env.VOTE_COOLDOWN_MS, 8000),  // gap before a new round can open
 
   // --- Fun Layer: instant emoji reactions + first-time welcome ---
