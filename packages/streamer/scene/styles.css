@@ -425,12 +425,13 @@ html, body {
   background: radial-gradient(circle, var(--c3), transparent 68%); will-change: transform, opacity;
 }
 
-/* typed→on-scene latency readout (top-left, quiet) */
+/* typed→on-scene latency readout — tucked into the very bottom-right corner */
 #latency {
-  position: absolute; left: 16px; top: 16px; z-index: 9;
+  position: absolute; right: 0; bottom: 0; z-index: 9;
   font-size: 12px; font-family: "Liberation Mono", monospace;
-  padding: 4px 10px; border-radius: 6px;
-  background: rgba(0,0,0,0.45); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.12);
+  padding: 5px 12px; border-radius: 8px 0 0 0; /* round only the inner corner */
+  background: rgba(0,0,0,0.55); color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.12); border-right: none; border-bottom: none;
 }
 #latency[data-show="false"] { display: none; }
 
@@ -502,11 +503,10 @@ body.lite-render .ovl-scanlines { mix-blend-mode: normal; }
 }
 #render-warning[data-show="false"] { display: none; }
 
-/* collective theme vote panel — lower-right, the clear band below the top-right
-   shoutouts and clear of the centered headline + bottom ticker. Right-anchored
-   so GSAP can own transform for the pop-in without fighting a centering offset. */
+/* collective theme vote panel — top-left, above the vertically-centered headline,
+   leaving the whole right side free for the message/shoutout column. */
 #vote {
-  position: absolute; right: 40px; bottom: 120px; z-index: 7;
+  position: absolute; left: 40px; top: 40px; z-index: 7;
   width: 420px; padding: 18px 22px 16px;
   border-radius: 18px;
   background: linear-gradient(135deg, rgba(14,10,30,0.9), rgba(8,6,20,0.82));

@@ -1006,7 +1006,7 @@
     retint();
     startAmbient();
     startTickerCards();
-    setStatus("live", true);
+    setStatus("live", false); // the "live" bubble is hidden (kept for operator use)
     window.__sceneReady = true;
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
