@@ -614,7 +614,10 @@ body.lite-render .ovl-scanlines { mix-blend-mode: normal; }
 #standby {
   position: absolute; inset: 0; z-index: 11; pointer-events: none;
   display: flex; align-items: center; justify-content: center; text-align: center;
-  background: radial-gradient(ellipse at center, rgba(8,6,22,0.74), rgba(3,2,10,0.95));
+  /* near-opaque scrim + a frosted blur so the live show is hidden — only a soft
+     ambient glow bleeds through behind the message */
+  background: radial-gradient(ellipse at center, rgba(6,5,16,0.9), rgba(2,1,8,0.985));
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
   opacity: 0; transition: opacity 0.9s ease;
 }
 #standby[data-show="true"] { opacity: 1; }
