@@ -67,6 +67,7 @@
   // The engine owns the ballot state; the scene only renders. Options arrive
   // pre-validated (known theme keys + labels); we clean() defensively anyway.
   let voteTickerFn = null;   // per-frame countdown updater (real-time based)
+  let voteGraceTimer = null; // auto-dismiss fallback if voteEnd never arrives
   let voteHideTl = null;
   let voteActive = false;    // a round is on screen (until its countdown + result finish)
   let voteEndsAt = 0;        // when the current countdown is due (for stale-round recovery)
@@ -75,6 +76,12 @@
     const el = $("#vote");
     if (!el) return;
     el.dataset.show = on ? "true" : "false";
+  }
+  // tear down a round cleanly (used by voteEnd and the no-voteEnd safety fallback)
+  function voteTeardown() {
+    if (voteTickerFn && window.gsap) { window.gsap.ticker.remove(voteTickerFn); voteTickerFn = null; }
+    if (voteGraceTimer) { clearTimeout(voteGraceTimer); voteGraceTimer = null; }
+    voteActive = false; voteKeys = "";
   }
   // Render/update the option rows IN PLACE keyed by theme, so a round's locked
   // options keep stable rows — only counts, bars, and the leader highlight
@@ -916,6 +923,7 @@
       const fill = $("#vote-progress-fill");
       const timer = $("#vote-timer");
       if (voteTickerFn && gsap) { gsap.ticker.remove(voteTickerFn); voteTickerFn = null; }
+      if (voteGraceTimer) { clearTimeout(voteGraceTimer); voteGraceTimer = null; }
       const now0 = (window.performance ? performance.now() : Date.now());
       const endsAtClock = now0 + ms;
       const tick = () => {
@@ -923,7 +931,19 @@
         const remain = Math.max(0, endsAtClock - t);
         if (fill) fill.style.width = ((remain / ms) * 100).toFixed(1) + "%";
         if (timer) timer.textContent = Math.ceil(remain / 1000) + "s";
-        if (remain <= 0 && voteTickerFn && gsap) { gsap.ticker.remove(voteTickerFn); voteTickerFn = null; }
+        if (remain <= 0) {
+          if (voteTickerFn && gsap) { gsap.ticker.remove(voteTickerFn); voteTickerFn = null; }
+          // safety: if the engine's voteEnd never lands, don't hang at 0s —
+          // auto-dismiss after a grace period (voteEnd clears this first normally)
+          if (!voteGraceTimer) voteGraceTimer = setTimeout(() => {
+            voteGraceTimer = null;
+            if (!voteActive) return;
+            if (gsap) gsap.to(el, { opacity: 0, y: 16, scale: 0.96, duration: 0.4, ease: "power2.in",
+              onComplete: () => { voteShow(false); el.classList.remove("vote-won"); } });
+            else voteShow(false);
+            voteTeardown();
+          }, 6000);
+        }
       };
       tick();
       if (gsap) { voteTickerFn = tick; gsap.ticker.add(tick); }
@@ -945,6 +965,7 @@
     voteEnd(p = {}) {
       const el = $("#vote");
       if (!el) return { ok: false };
+      if (voteGraceTimer) { clearTimeout(voteGraceTimer); voteGraceTimer = null; } // we're closing it cleanly
       if (voteTickerFn && gsap) { gsap.ticker.remove(voteTickerFn); voteTickerFn = null; }
       const winner = THEMES.includes(p.winner) ? p.winner : null;
       const timer = $("#vote-timer");
