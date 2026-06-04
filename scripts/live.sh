@@ -8,6 +8,7 @@
 #   scripts/live.sh status    # is it running? + stream health + now-playing
 #   scripts/live.sh logs      # tail the ingest log
 #   scripts/live.sh now       # what's playing (title/artist/cover/likes/queue)
+#   scripts/live.sh queue     # list the waiting request queue
 #   scripts/live.sh queue URL # operator: queue a Suno song directly (shows cover)
 #   scripts/live.sh next      # operator: move onto the next song (alias: skip)
 #
@@ -21,6 +22,7 @@ MUTATE_URL="${MUTATE_URL:-http://localhost:8080/mutate}"
 CONTROL="${CONTROL_BASE:-http://localhost:8080}"
 MOOD_TICK_MS="${MOOD_TICK_MS:-6000}"
 ENTRY="packages/ingest/src/index.js"
+QUEUE_FILE="${MUSIC_QUEUE_FILE_HOST:-control/music-queue.json}" # DJ persists the waiting queue here
 
 # PIDs of the actual node ingest. pgrep -f also matches this script, the wrapper,
 # greps, and pgrep itself if their cmdline mentions the entry — so require the
@@ -67,6 +69,7 @@ status() {
   grep -iE 'source=|connected|resumed' "$LOG" 2>/dev/null | tail -2
   printf '[stream] '; curl -s "$CONTROL/health" 2>/dev/null | grep -oE '"ffmpegUp":[a-z]+|"ffmpegRestarts":[0-9]+|"renderMode":"[a-z]+"' | tr '\n' ' '; echo
   printf '[music]  '; now_playing
+  echo "[queue]"; queue_list
 }
 
 # pretty-print whatever's playing (title/artist/requester/likes/queue/cover)
@@ -81,6 +84,17 @@ now_playing() {
   queue=$(echo "$j" | grep -oE '"queue":[0-9]+' | grep -oE '[0-9]+')
   echo "$j" | grep -q '"image":"https' && cover="cover ✓" || cover="no cover"
   echo "♪ $title — $artist   ${who:+(req $who) }♥ ${likes:-0}  ▶ ${queue:-0} queued  $cover"
+}
+
+# list the waiting request queue (read from the DJ's persisted queue file)
+queue_list() {
+  node -e '
+    const fs = require("fs");
+    let q = []; try { q = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch (e) {}
+    if (!Array.isArray(q) || !q.length) { console.log("  (queue empty)"); process.exit(0); }
+    q.forEach((t, i) => console.log("  " + (i + 1) + ". " + (t.title || "?") + " — " + (t.artist || "?")
+      + (t.who ? "  (req " + t.who + ")" : "") + (t.image ? "  cover ✓" : "")));
+  ' "$QUEUE_FILE" 2>/dev/null || echo "  (queue unavailable)"
 }
 
 # operator: queue a Suno song directly. Resolve host-side first so we can show
@@ -120,7 +134,7 @@ case "${1:-status}" in
   status)    status ;;
   logs)      tail -f "$LOG" ;;
   now)       printf '  '; now_playing ;;
-  queue)     queue_song "${2:-}" "${3:-@operator}" ;;
+  queue)     if [ -n "${2:-}" ]; then queue_song "$2" "${3:-@operator}"; else echo "[queue]"; queue_list; fi ;;
   next|skip) next_song ;;
-  *) echo "usage: $0 {start|stop|restart|status|logs|now|queue <url> [who]|next}"; exit 1 ;;
+  *) echo "usage: $0 {start|stop|restart|status|logs|now|queue [<url> [who]]|next}"; exit 1 ;;
 esac
