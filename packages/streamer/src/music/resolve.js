@@ -51,7 +51,12 @@ export async function resolveSuno(shareUrl, { timeoutMs = 12000, fetchImpl = fet
       if (m2) { title = m2[1].trim(); artist = m2[2].trim(); }
       else title = tm[1].replace(/\s*\|\s*Suno.*$/i, "").trim() || title;
     }
-    return { ok: true, audioUrl, title: decodeEntities(title), artist: decodeEntities(artist), share: shareUrl };
+
+    // cover art via og:image, validated to the suno image CDN (allowlist)
+    const og = (html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) || [])[1] || "";
+    const image = /^https:\/\/cdn\d*\.suno\.ai\/[0-9a-f-]{36}\.(?:jpe?g|png|webp)$/i.test(og) ? og : "";
+
+    return { ok: true, audioUrl, image, title: decodeEntities(title), artist: decodeEntities(artist), share: shareUrl };
   } catch (e) {
     return { ok: false, error: e.name === "AbortError" ? "timeout" : e.message };
   } finally {

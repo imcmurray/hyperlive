@@ -469,6 +469,13 @@ html, body {
   will-change: transform, opacity;
 }
 #nowplaying[data-show="false"] { display: none; }
+/* cover art (Suno og:image) */
+.np-art {
+  width: 46px; height: 46px; flex: 0 0 auto; border-radius: 9px;
+  background-size: cover; background-position: center;
+  border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+}
+.np-art[data-show="false"] { display: none; }
 /* little equalizer bars (animate only while playing) */
 .np-eq { display: inline-flex; align-items: flex-end; gap: 3px; height: 26px; flex: 0 0 auto; }
 .np-eq i { width: 4px; height: 30%; border-radius: 2px; background: linear-gradient(var(--c3), var(--c1)); }

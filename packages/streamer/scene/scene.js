@@ -1000,6 +1000,13 @@
       const who = clean(p.who, 40);
       const likes = clampNum(p.likes, 0, 1e6, 0) | 0;
       const queue = clampNum(p.queue, 0, 1e6, 0) | 0;
+      // cover art (Suno og:image) — https-only, like avatars
+      const art = el.querySelector(".np-art");
+      const img = typeof p.image === "string" && /^https:\/\/[^\s"')<>]+$/i.test(p.image) ? p.image : "";
+      if (art) {
+        if (img) { art.style.backgroundImage = `url("${img}")`; art.dataset.show = "true"; }
+        else { art.style.backgroundImage = ""; art.dataset.show = "false"; }
+      }
       const set = (sel, txt) => { const n = el.querySelector(sel); if (n) n.textContent = txt; };
       set(".np-title", title);
       set(".np-artist", artist);

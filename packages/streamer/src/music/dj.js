@@ -25,6 +25,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
     return {
       title: current?.title || "",
       artist: current?.artist || "",
+      image: current?.image || "",         // cover art (Suno og:image)
       who: current?.who || "",            // who requested it ("" = house rotation)
       source: current?.source || "",       // "request" | "rotation"
       likes: current ? current.likes.size : 0,
@@ -41,7 +42,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
     const out = [];
     for (const link of links) {
       const r = await resolveSuno(link).catch(() => ({ ok: false }));
-      if (r.ok) out.push({ audioUrl: r.audioUrl, title: r.title, artist: r.artist, share: link, who: who || "" });
+      if (r.ok) out.push({ audioUrl: r.audioUrl, image: r.image, title: r.title, artist: r.artist, share: link, who: who || "" });
       else log(`  ♪ resolve failed: ${link} (${r.error || "?"})`);
     }
     return out;
@@ -103,7 +104,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
       }
       const r = await resolveSuno(shareUrl).catch(() => ({ ok: false, error: "resolve error" }));
       if (!r.ok) return { ok: false, reason: r.error || "could not resolve" };
-      queue.push({ audioUrl: r.audioUrl, title: r.title, artist: r.artist, share: shareUrl, who: who || "" });
+      queue.push({ audioUrl: r.audioUrl, image: r.image, title: r.title, artist: r.artist, share: shareUrl, who: who || "" });
       log(`  ♪ queued: ${r.title} — ${r.artist} (req ${who || "?"}) [${queue.length} in queue]`);
       pushUpdate();
       return { ok: true, title: r.title, artist: r.artist, position: queue.length };
