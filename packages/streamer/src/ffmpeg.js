@@ -15,7 +15,12 @@ function audioInput() {
 }
 
 function audioEncode() {
-  return ["-c:a", "aac", "-b:a", "128k", "-ar", "44100"];
+  // The eq bars travel a slow path (meter → browser → capture) while the audio
+  // is near-direct, so the bars lag the beat. Delaying the audio by ~that lag
+  // realigns them in the output. Tunable via AUDIO_DELAY_MS.
+  const ms = config.audioMode === "music" ? config.audioDelayMs : 0;
+  const delay = ms > 0 ? ["-af", `adelay=${ms}:all=1`] : [];
+  return [...delay, "-c:a", "aac", "-b:a", "128k", "-ar", "44100"];
 }
 
 // software H.264 (libx264)

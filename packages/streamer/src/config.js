@@ -15,6 +15,8 @@ export const config = {
   pulseSink: process.env.PULSE_SINK || "hyperlive",                    // null-sink name
   pulseMonitor: (process.env.PULSE_SINK || "hyperlive") + ".monitor", // ffmpeg pulse source
   queueMax: int(process.env.MUSIC_QUEUE_MAX, 20),                     // max requests waiting
+  // delay output audio to line up with the eq bars' render/capture lag (ms)
+  audioDelayMs: int(process.env.AUDIO_DELAY_MS, 150),
 
   // --- YouTube RTMP ---
   rtmpUrl: process.env.YT_RTMP_URL || "rtmp://a.rtmp.youtube.com/live2",
