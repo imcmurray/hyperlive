@@ -59,7 +59,9 @@ function buildScreencastArgs(s) {
     return [
       "-loglevel", "warning",
       "-vaapi_device", RENDER_NODE,
-      "-f", "image2pipe", "-use_wallclock_as_timestamps", "1", "-i", "pipe:0",
+      // the node side PACES the pipe to exactly s.fps, so declare it CFR here:
+      // ffmpeg assigns even timestamps (no wallclock resample) → no dup/judder
+      "-framerate", String(s.fps), "-f", "image2pipe", "-i", "pipe:0",
       ...audioInput(),
       "-vf", "format=nv12,hwupload",
       // iHD low-power encoder only supports CQP (constant quality) rate control
@@ -72,7 +74,8 @@ function buildScreencastArgs(s) {
   }
   return [
     "-loglevel", "warning",
-    "-f", "image2pipe", "-use_wallclock_as_timestamps", "1", "-i", "pipe:0",
+    // paced CFR pipe (see HW branch) → even timestamps, no resample/judder
+    "-framerate", String(s.fps), "-f", "image2pipe", "-i", "pipe:0",
     ...audioInput(),
     ...x264Video(s.fps, s.bitrate),
     ...audioEncode(),

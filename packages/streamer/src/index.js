@@ -319,16 +319,27 @@ async function main() {
   } else if (renderMode === "gpu") {
     streamer = startScreencastStreamer({ fps: eff.fps, bitrate: eff.bitrate });
     const cdp = await page.target().createCDPSession();
-    let frames = 0;
+    let frames = 0, captured = 0;
+    // Chromium screencasts faster than the output fps (e.g. ~49 when the encode
+    // keeps up). Feeding ffmpeg that faster, uneven stream makes it resample
+    // against the 30fps GSAP motion → duplicated frames + judder. So we PACE:
+    // forward exactly one frame per output interval (drop the rest), giving
+    // ffmpeg an even CFR stream where capture == animation == output.
+    const frameIntervalMs = 1000 / eff.fps;
+    let nextDue = 0;
     cdp.on("Page.screencastFrame", (f) => {
-      // ack immediately (fire-and-forget) so the next frame is requested without
-      // a round-trip stall, THEN hand the frame to ffmpeg
+      // always ack (fire-and-forget) so Chromium keeps producing frames
       cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
+      captured++;
+      const now = Date.now();
+      if (now < nextDue) return; // drop: not due yet at the target fps
       streamer.write(Buffer.from(f.data, "base64"));
       frames++;
+      nextDue = (nextDue === 0 ? now : nextDue) + frameIntervalMs; // accumulate → exact avg fps
+      if (nextDue < now) nextDue = now + frameIntervalMs;          // re-sync after a GC pause
     });
     await cdp.send("Page.startScreencast", { format: "jpeg", quality: num(process.env.SCREENCAST_QUALITY, 92), maxWidth: eff.capW, maxHeight: eff.capH, everyNthFrame: 1 });
-    setInterval(() => console.log(`[screencast] ${frames} frames delivered so far`), 15000);
+    setInterval(() => console.log(`[screencast] forwarded ${frames} / captured ${captured} frames (paced @${eff.fps})`), 15000);
     console.log(`[stream] GPU screencast ${eff.capW}x${eff.capH}@${eff.fps} →`, config.outputFile || "RTMP");
   } else {
     streamer = startStreamer({ width: eff.width, height: eff.height, fps: eff.fps, bitrate: eff.bitrate });
