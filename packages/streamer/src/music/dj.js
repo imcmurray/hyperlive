@@ -40,6 +40,8 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
   // --- volume fade (ramp the pulse sink volume → what ffmpeg captures) ---
   let sinkVol = 100;          // current sink volume %
   let fadeTimer = null;
+  let skipping = false;       // a deliberate skip (don't treat as a fast-fail)
+  let fadeInPending = false;  // fade the next track up once it starts (skip segue)
   function applySinkVol(pct) {
     sinkVol = Math.max(0, Math.min(100, Math.round(pct)));
     try { spawn("pactl", ["set-sink-volume", config.pulseSink, sinkVol + "%"], { stdio: "ignore" }); } catch { /* no pulse */ }
@@ -120,12 +122,18 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
       track.audioUrl,
     ], { stdio: "ignore" });
 
+    // skip segue: the prior track faded out, so fade THIS one up once it's
+    // (likely) started buffering — a clean cross-through-silence transition
+    if (fadeInPending) { fadeInPending = false; setTimeout(() => { if (!stopped) fade(100, 900); }, 550); }
+
     player.on("exit", async () => {
       player = null;
       if (stopped) return;
       const ranMs = Date.now() - started;
-      // failed fast → the CDN url may be stale; re-resolve the share once
-      if (ranMs < 2500 && track.share) {
+      const wasSkip = skipping; skipping = false;
+      // failed fast → the CDN url may be stale; re-resolve the share once (but a
+      // deliberate skip isn't a failure — just advance)
+      if (!wasSkip && ranMs < 2500 && track.share) {
         const r = await resolveSuno(track.share).catch(() => ({ ok: false }));
         if (r.ok && r.audioUrl !== track.audioUrl) {
           log(`  ♪ re-resolved stale url for ${track.title}`);
@@ -175,7 +183,14 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
       return { ok: true, likes: current.likes.size, fresh: !had };
     },
 
-    skip() { if (player) { log("  ♪ skip"); player.kill("SIGTERM"); } },
+    // skip with a smooth segue: fade the current track out, then swap, then the
+    // next track fades up (see fadeInPending in play). Plain SIGTERM would cut.
+    skip() {
+      if (!player) return;
+      log("  ♪ skip (fade segue)");
+      fade(0, 700);
+      setTimeout(() => { skipping = true; fadeInPending = true; if (player) player.kill("SIGTERM"); }, 720);
+    },
     fade,                       // fade(targetPct, ms) — outro fade-out / onair fade-in
     status,
     queueInfo,                  // { current, queue:[requests], rotation:[house] }
