@@ -71,18 +71,13 @@ function parseIntent(comment) {
     };
   }
 
-  // 2) explicit "theme: x" / "theme x"
-  let m = lower.match(/^theme[:\s]+([a-z]+)/);
-  if (m) {
-    const t = THEMES.includes(m[1]) ? m[1] : THEME_ALIASES[m[1]];
-    if (t) return { action: "setTheme", params: { theme: t } };
-  }
-  // bare theme word anywhere
-  for (const t of THEMES) if (new RegExp(`\\b${t}\\b`).test(lower)) return { action: "setTheme", params: { theme: t } };
-  for (const [alias, t] of Object.entries(THEME_ALIASES)) if (new RegExp(`\\b${alias}\\b`).test(lower)) return { action: "setTheme", params: { theme: t } };
+  // NOTE: the director no longer changes themes directly. Theme changes go ONLY
+  // through the vote system (!theme/!vote + hotwords) or the mood engine's eased
+  // drift — so a comment that merely mentions a theme word (e.g. "solar") can't
+  // instantly swap the theme out from under an open vote.
 
   // 3) "headline: ..." → big headline
-  m = text.match(/^headline[:\s]+(.+)/i);
+  let m = text.match(/^headline[:\s]+(.+)/i);
   if (m) return { action: "setHeadline", params: { text: m[1] } };
 
   // 3a) "ticker: a, b, c" → rewrite the scrolling ticker
