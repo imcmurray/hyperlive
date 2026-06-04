@@ -33,8 +33,8 @@ export function createMeter({ onLevels = () => {}, log = () => {} }) {
       let v = (db - FLOOR[i]) / (CEIL[i] - FLOOR[i]);
       v = Math.pow(Math.max(0, Math.min(1, v)), GAMMA);
       if (!Number.isFinite(v)) v = 0; // never let NaN poison the smoothed level
-      // snappy attack (catch beats), quick release (drop in quiet parts)
-      level[i] = v > level[i] ? v * 0.85 + level[i] * 0.15 : v * 0.5 + level[i] * 0.5;
+      // INSTANT attack (the bar jumps on the beat — no smoothing lag), quick release
+      level[i] = v > level[i] ? v : v * 0.6 + level[i] * 0.4;
     }
     onLevels(level.slice());
     cur = [null, null, null, null];

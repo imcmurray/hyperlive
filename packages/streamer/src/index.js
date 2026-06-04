@@ -323,26 +323,27 @@ async function main() {
     streamer = startScreencastStreamer({ fps: eff.fps, bitrate: eff.bitrate });
     const cdp = await page.target().createCDPSession();
     let frames = 0, captured = 0;
-    // Chromium screencasts faster than the output fps (e.g. ~49 when the encode
-    // keeps up). Feeding ffmpeg that faster, uneven stream makes it resample
-    // against the 30fps GSAP motion → duplicated frames + judder. So we PACE:
-    // forward exactly one frame per output interval (drop the rest), giving
-    // ffmpeg an even CFR stream where capture == animation == output.
-    const frameIntervalMs = 1000 / eff.fps;
-    let nextDue = 0;
+    let latestFrame = null;
+    // Chromium screencasts faster than the output fps and unevenly. We keep only
+    // the LATEST frame and PUMP it to ffmpeg at EXACTLY the output fps, on a
+    // self-correcting wall-clock timer. That gives ffmpeg an even CFR stream
+    // (smooth — no resample against the 30fps GSAP motion) whose frame count
+    // tracks real time (so the -framerate timestamps never drift from audio).
     cdp.on("Page.screencastFrame", (f) => {
-      // always ack (fire-and-forget) so Chromium keeps producing frames
-      cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
+      cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {}); // keep frames flowing
+      latestFrame = Buffer.from(f.data, "base64");
       captured++;
-      const now = Date.now();
-      if (now < nextDue) return; // drop: not due yet at the target fps
-      streamer.write(Buffer.from(f.data, "base64"));
-      frames++;
-      nextDue = (nextDue === 0 ? now : nextDue) + frameIntervalMs; // accumulate → exact avg fps
-      if (nextDue < now) nextDue = now + frameIntervalMs;          // re-sync after a GC pause
     });
+    const frameIntervalMs = 1000 / eff.fps;
+    let nextTick = Date.now();
+    const pump = () => {
+      nextTick += frameIntervalMs;
+      if (latestFrame) { streamer.write(latestFrame); frames++; } // dup latest if capture stalled (CFR held)
+      setTimeout(pump, Math.max(0, nextTick - Date.now())); // self-correct → exact fps, no drift
+    };
     await cdp.send("Page.startScreencast", { format: "jpeg", quality: num(process.env.SCREENCAST_QUALITY, 92), maxWidth: eff.capW, maxHeight: eff.capH, everyNthFrame: 1 });
-    setInterval(() => console.log(`[screencast] forwarded ${frames} / captured ${captured} frames (paced @${eff.fps})`), 15000);
+    pump();
+    setInterval(() => console.log(`[screencast] pumped ${frames} / captured ${captured} frames (@${eff.fps} wall-locked)`), 15000);
     console.log(`[stream] GPU screencast ${eff.capW}x${eff.capH}@${eff.fps} →`, config.outputFile || "RTMP");
   } else {
     streamer = startStreamer({ width: eff.width, height: eff.height, fps: eff.fps, bitrate: eff.bitrate });

@@ -64,8 +64,9 @@ function buildScreencastArgs(s) {
     return [
       "-loglevel", "warning",
       "-vaapi_device", RENDER_NODE,
-      // the node side PACES the pipe to exactly s.fps, so declare it CFR here:
-      // ffmpeg assigns even timestamps (no wallclock resample) → no dup/judder
+      // The node side PUMPS the pipe at EXACTLY s.fps locked to wall-clock, so
+      // declaring it CFR here gives even timestamps (smooth, no resample) that
+      // also track real time (no A/V drift).
       "-framerate", String(s.fps), "-f", "image2pipe", "-i", "pipe:0",
       ...audioInput(),
       "-vf", "format=nv12,hwupload",
@@ -79,7 +80,7 @@ function buildScreencastArgs(s) {
   }
   return [
     "-loglevel", "warning",
-    // paced CFR pipe (see HW branch) → even timestamps, no resample/judder
+    // pumped at exactly s.fps (wall-clock locked) → even CFR timestamps, no drift
     "-framerate", String(s.fps), "-f", "image2pipe", "-i", "pipe:0",
     ...audioInput(),
     ...x264Video(s.fps, s.bitrate),
