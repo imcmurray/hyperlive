@@ -13,12 +13,14 @@ import { spawn } from "node:child_process";
 import { config } from "../config.js";
 
 const N = 4;
-// FIXED dB→0..1 mapping per band (measured: music RMS runs ~ -13 dB loud to the
-// -40s in quiet parts). Quiet really maps to 0 — no auto-gain pumping the bars
-// back up. floor = bar empties at/below this; ceil = bar full at/above.
-const FLOOR = [-44, -44, -42, -42];
-const CEIL = [-13, -13, -16, -15];
-const GAMMA = 1.5;          // >1 pushes the low end down so quiet clearly drops
+// FIXED dB→0..1 mapping per band, spanning each band's MEASURED dynamic range so
+// the bars use their full travel (lively) while true quiet still maps to 0 (no
+// auto-gain pumping). floor = empty at/below; ceil = full at/above. Tunable via
+// EQ_FLOOR / EQ_CEIL (comma-separated dB) without a code change.
+const envNums = (s, d) => (s ? s.split(",").map(Number) : d);
+const FLOOR = envNums(process.env.EQ_FLOOR, [-50, -45, -33, -32]);
+const CEIL = envNums(process.env.EQ_CEIL, [-18, -18, -14, -15]);
+const GAMMA = Number(process.env.EQ_GAMMA || 1.0); // 1 = linear (max movement)
 
 export function createMeter({ onLevels = () => {}, log = () => {} }) {
   let proc = null, stopped = false;
@@ -27,9 +29,10 @@ export function createMeter({ onLevels = () => {}, log = () => {} }) {
 
   function emit() {
     for (let i = 0; i < N; i++) {
-      const db = cur[i] == null ? -90 : cur[i];
+      const db = Number.isFinite(cur[i]) ? cur[i] : -120; // null/inf/NaN → silence
       let v = (db - FLOOR[i]) / (CEIL[i] - FLOOR[i]);
       v = Math.pow(Math.max(0, Math.min(1, v)), GAMMA);
+      if (!Number.isFinite(v)) v = 0; // never let NaN poison the smoothed level
       // snappy attack (catch beats), quick release (drop in quiet parts)
       level[i] = v > level[i] ? v * 0.85 + level[i] * 0.15 : v * 0.5 + level[i] * 0.5;
     }
@@ -63,7 +66,7 @@ export function createMeter({ onLevels = () => {}, log = () => {} }) {
         const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
         const band = line.match(/astats\.([1-4])\.RMS_level=(-?inf|-?\d+(?:\.\d+)?)/i);
         if (band) {
-          cur[+band[1] - 1] = /inf/i.test(band[2]) ? FLOOR : parseFloat(band[2]);
+          cur[+band[1] - 1] = /inf/i.test(band[2]) ? -120 : parseFloat(band[2]); // scalar, not the array
         } else if (/astats\.Overall\.RMS_level=/i.test(line)) {
           emit(); // Overall is the last key of each window → flush
         }
