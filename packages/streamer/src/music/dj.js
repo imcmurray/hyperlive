@@ -17,6 +17,10 @@ import { config } from "../config.js";
 // the waiting request queue is persisted here so a streamer restart doesn't drop
 // viewer requests (the bind-mounted control/ survives container rebuilds)
 const QUEUE_FILE = process.env.MUSIC_QUEUE_FILE || "./control/music-queue.json";
+// per-song heart counts, keyed by Suno share URL, persisted so a song resumes its
+// like total the next time it plays (and across restarts). Stores the SET of
+// likers per song → "one like per author per song" survives replays too.
+const SONG_LIKES_FILE = process.env.SONG_LIKES_FILE || "./control/song-likes.json";
 
 export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMode = "live" }) {
   const rotation = [];        // resolved house tracks {audioUrl,title,artist,share}
@@ -33,11 +37,40 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
   // unique Suno creators whose tracks have played since we went on air — shown
   // on the outro as a thank-you credit (reset each time we go live; see setMode)
   const liveArtists = new Set();
+  const songLikes = new Map(); // share URL → Set<author> (persisted; survives replays + restarts)
+  let songLikesTimer = null;
   let stopped = false;
   let updateTimer = null;
 
   async function saveQueue() {
     try { await writeFile(QUEUE_FILE, JSON.stringify(queue)); } catch { /* non-fatal */ }
+  }
+  async function loadSongLikes() {
+    try {
+      const obj = JSON.parse(await readFile(SONG_LIKES_FILE, "utf8"));
+      if (obj && typeof obj === "object") {
+        for (const [share, likers] of Object.entries(obj)) {
+          if (Array.isArray(likers)) songLikes.set(share, new Set(likers.map(String)));
+        }
+      }
+    } catch { /* none yet */ }
+  }
+  function saveSongLikes() { // debounced — likes can arrive in bursts
+    if (songLikesTimer) return;
+    songLikesTimer = setTimeout(async () => {
+      songLikesTimer = null;
+      const obj = {};
+      for (const [share, set] of songLikes) obj[share] = [...set];
+      try { await writeFile(SONG_LIKES_FILE, JSON.stringify(obj)); } catch { /* non-fatal */ }
+    }, 1000);
+  }
+  // the persistent liker set for a track (created on first play), so likes added
+  // while it plays write straight back into the map → restored next time it plays
+  function likeSetFor(track) {
+    if (!track || !track.share) return new Set();
+    let set = songLikes.get(track.share);
+    if (!set) { set = new Set(); songLikes.set(track.share, set); }
+    return set;
   }
   async function loadQueue() {
     try {
@@ -129,7 +162,9 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
 
   function play(track) {
     if (stopped) return;
-    current = { ...track, likes: new Set() };
+    // restore this song's accumulated likers so the heart count resumes where it
+    // left off (and the same author can't double-like across plays)
+    current = { ...track, likes: likeSetFor(track) };
     // credit live (non-intro) artists for the outro thank-you
     if (track.source !== "intro" && track.artist) liveArtists.add(track.artist);
     const started = Date.now();
@@ -174,6 +209,9 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
       log(`[dj] resolving ${INTRO.length} intro tracks…`);
       intro.push(...(await resolveAll(INTRO)));
       log(`[dj] intro ready: ${intro.length}/${INTRO.length} tracks (boot mode=${mode})`);
+      // restore accumulated per-song heart counts (resume likes on replay)
+      await loadSongLikes();
+      if (songLikes.size) log(`[dj] restored heart counts for ${songLikes.size} song(s)`);
       // restore any persisted request queue (survives a streamer restart)
       const saved = await loadQueue();
       if (saved.length) { queue.push(...saved); log(`[dj] restored ${saved.length} queued request(s)`); }
@@ -202,7 +240,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
       const a = String(author || "anon");
       const had = current.likes.has(a);
       current.likes.add(a);
-      if (!had) pushUpdate();
+      if (!had) { pushUpdate(); saveSongLikes(); } // persist so the count resumes on replay
       return { ok: true, likes: current.likes.size, fresh: !had };
     },
 
@@ -238,6 +276,6 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
     artists: () => Array.from(liveArtists), // unique creators played since on air (outro credits)
     status,
     queueInfo,                  // { current, queue:[requests], rotation:[house] }
-    stop() { stopped = true; if (fadeTimer) clearInterval(fadeTimer); if (player) player.kill("SIGKILL"); },
+    stop() { stopped = true; if (fadeTimer) clearInterval(fadeTimer); if (songLikesTimer) clearTimeout(songLikesTimer); if (player) player.kill("SIGKILL"); },
   };
 }
