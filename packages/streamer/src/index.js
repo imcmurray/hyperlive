@@ -209,6 +209,20 @@ async function launchBrowser(url, opts) {
       ...(useGpu ? gpuArgs : ["--disable-gpu"]),
       "--no-first-run",
       "--autoplay-policy=no-user-gesture-required",
+      // Keep a long-lived, offscreen capture page running at FULL speed. Chrome
+      // aggressively throttles backgrounded/occluded renderers: rAF (the GSAP
+      // ticker) drops toward ~1fps, IntensiveWakeUpThrottling clamps timers to
+      // ~once/minute after ~5min, and IPC-flooding protection delays our high-
+      // rate page.evaluate() pushes (eq bars ~28/s + directives). In the GPU
+      // screencast path the page is truly offscreen and the frame pump is a
+      // setTimeout loop — without these the stream's motion + pump quietly
+      // collapse minutes in. (Mirrors hyperframes' headless-capture flag set.)
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+      "--disable-background-media-suspend",
+      "--disable-ipc-flooding-protection",
+      "--disable-features=IntensiveWakeUpThrottling",
       `--window-size=${width},${height}`,
       // headful-only window chrome (irrelevant/unwanted in headless)
       ...(headless ? [] : ["--kiosk", "--start-fullscreen", "--hide-scrollbars", "--disable-infobars", "--window-position=0,0"]),
