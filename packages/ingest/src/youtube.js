@@ -88,6 +88,17 @@ export async function* youtubeSource() {
 
   let lastSave = 0;
   let emptyStreak = 0; // consecutive empty polls → back off the interval
+  // Catch-up probe: a STALE pageToken is the silent failure mode — a restarted
+  // broadcast keeps the same liveChatId but kills the old session's token, and
+  // YouTube returns empty (not an error), so a normal poll would miss everything
+  // forever. When polls go quiet, one poll periodically drops the pageToken to
+  // re-anchor to the live tail; if that surfaces unseen messages, the token was
+  // stale and we've recovered. It replaces an idle poll, so it costs no extra
+  // quota. lastProbeAt=0 ⇒ probe on the FIRST idle, so a fresh start that
+  // resumed a dead token self-heals within ~a minute.
+  const PROBE_INTERVAL_MS = Number(process.env.YT_PROBE_INTERVAL_MS) || 180000;
+  let lastProbeAt = 0;
+  let probeNext = false;
   for (;;) {
     // SAFETY CUTOFF: stop polling before we exceed the daily quota (music +
     // visuals keep running; restart the ingest after the Pacific-midnight reset)
@@ -98,10 +109,11 @@ export async function* youtubeSource() {
 
     token = await getAccessToken();
 
+    const probing = probeNext; probeNext = false; // a probe drops the token to re-anchor
     const url = new URL("https://www.googleapis.com/youtube/v3/liveChat/messages");
     url.searchParams.set("liveChatId", liveChatId);
     url.searchParams.set("part", "snippet,authorDetails");
-    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    if (pageToken && !probing) url.searchParams.set("pageToken", pageToken);
 
     let data;
     try {
@@ -127,9 +139,13 @@ export async function* youtubeSource() {
 
     pageToken = data.nextPageToken || pageToken;
     let processed = 0;
-    if (!first) {
+    if (first) {
+      // skip the backlog on a fresh start — but REMEMBER its ids so a later
+      // catch-up probe doesn't replay the same backlog as "unseen"
+      for (const item of data.items || []) seen.add(item.id);
+    } else {
       for (const item of data.items || []) {
-        if (seen.has(item.id)) continue;   // dedup (mainly across the resume boundary)
+        if (seen.has(item.id)) continue;   // dedup (resume boundary + probe overlap)
         seen.add(item.id); processed++;
         yield toComment(item);
       }
@@ -139,6 +155,10 @@ export async function* youtubeSource() {
       }
     }
     first = false;
+    if (probing) {
+      lastProbeAt = Date.now();
+      if (processed > 0) console.log(`[youtube] catch-up probe re-synced (+${processed} missed — stale pageToken recovered)`);
+    }
 
     const now = Date.now();
     if (now - lastSave > 5000) { lastSave = now; saveCursor(liveChatId, pageToken, [...seen]); }
@@ -146,6 +166,9 @@ export async function* youtubeSource() {
     // ADAPTIVE: snappy while messages flow, ramp toward idle when quiet — never
     // faster than YouTube's own suggested cadence.
     if (processed > 0) emptyStreak = 0; else emptyStreak++;
+    // when polls go quiet, periodically re-anchor with a token-less probe so a
+    // dead pageToken can't strand us in permanent silence
+    if (processed === 0 && !probing && now - lastProbeAt >= PROBE_INTERVAL_MS) probeNext = true;
     const want = processed > 0
       ? config.yt.pollActiveMs
       : Math.min(config.yt.pollIdleMs, config.yt.pollActiveMs + emptyStreak * 6000);
