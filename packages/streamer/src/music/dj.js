@@ -30,6 +30,9 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
   // "live"  = play the request queue, then the house rotation. Going on air
   // flips intro → live (see setMode).
   let mode = initialMode === "intro" ? "intro" : "live";
+  // unique Suno creators whose tracks have played since we went on air — shown
+  // on the outro as a thank-you credit (reset each time we go live; see setMode)
+  const liveArtists = new Set();
   let stopped = false;
   let updateTimer = null;
 
@@ -127,6 +130,8 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
   function play(track) {
     if (stopped) return;
     current = { ...track, likes: new Set() };
+    // credit live (non-intro) artists for the outro thank-you
+    if (track.source !== "intro" && track.artist) liveArtists.add(track.artist);
     const started = Date.now();
     log(`  ♪ now playing: ${track.title} — ${track.artist}${track.who ? ` (req ${track.who})` : ""}`);
     pushUpdate();
@@ -218,6 +223,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
       if (next === mode) return { ok: true, mode, changed: false };
       mode = next;
       if (mode === "intro") introIdx = 0;
+      else liveArtists.clear(); // fresh credit list for this on-air session
       log(`[dj] mode → ${mode}`);
       if (player) {
         fade(0, 700);
@@ -229,6 +235,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
       return { ok: true, mode, changed: true };
     },
     fade,                       // fade(targetPct, ms) — outro fade-out / onair fade-in
+    artists: () => Array.from(liveArtists), // unique creators played since on air (outro credits)
     status,
     queueInfo,                  // { current, queue:[requests], rotation:[house] }
     stop() { stopped = true; if (fadeTimer) clearInterval(fadeTimer); if (player) player.kill("SIGKILL"); },

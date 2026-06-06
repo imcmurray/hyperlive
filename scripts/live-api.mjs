@@ -45,9 +45,9 @@ try {
     case "fade":   out(await jpost("/music/fade", { to: req.to, ms: req.ms })); break;
     case "standby": {
       const mode = req.mode || "off";
+      if (mode === "outro") { out(await jpost("/outro", {})); break; }               // credits + links + fade-out
       const r = await jpost("/mutate", { action: "setStandby", params: { mode, title: req.title, subtitle: req.subtitle } });
-      if (mode === "outro") await jpost("/music/fade", { to: 0, ms: 6000 });        // sign-off fade-out
-      else if (mode === "off") await jpost("/music/fade", { to: 100, ms: 1800 });   // back on air
+      if (mode === "off") await jpost("/music/fade", { to: 100, ms: 1800 });         // back on air
       out(r); break;
     }
     case "intro": {                              // pre-show screen + intro-music loop
@@ -56,9 +56,17 @@ try {
       await jpost("/music/fade", { to: 100, ms: 1800 });
       out(r); break;
     }
-    case "onair": out(await jpost("/onair", { seconds: req.seconds })); break;       // countdown → reveal + live queue
+    case "onair": out(await jpost("/onair", { seconds: req.seconds })); break;       // countdown → reveal + live queue (from intro)
+    case "resume": {                             // instant reveal — back from tech/brb/outro (no countdown)
+      const r = await jpost("/mutate", { action: "setStandby", params: { mode: "off" } });
+      await jpost("/music/fade", { to: 100, ms: 1200 });
+      out(r); break;
+    }
+    case "outro": out(await jpost("/outro", {})); break;                             // sign-off: credits + links + fade
+    case "technical": case "tech": out(await jpost("/mutate", { action: "setStandby", params: { mode: "technical", title: req.title, subtitle: req.subtitle } })); break;
+    case "break": case "brb":      out(await jpost("/mutate", { action: "setStandby", params: { mode: "break", title: req.title, subtitle: req.subtitle } })); break;
     case "mode":  out(await jpost("/music/mode", { mode: req.mode || "live" })); break; // DJ playlist: intro ⇄ live
     case "mutate": out(await jpost("/mutate", { action: req.action, params: req.params || {} })); break; // any allowed scene directive
-    default: out({ ok: false, error: `unknown cmd: ${cmd}`, cmds: ["status", "now", "queue", "quota", "enqueue", "skip", "fade", "standby", "intro", "onair", "mode", "mutate"] });
+    default: out({ ok: false, error: `unknown cmd: ${cmd}`, cmds: ["status", "now", "queue", "quota", "enqueue", "skip", "fade", "standby", "intro", "onair", "resume", "outro", "technical", "break", "mode", "mutate"] });
   }
 } catch (e) { out({ ok: false, error: e.message }); process.exitCode = 1; }

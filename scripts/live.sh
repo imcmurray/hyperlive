@@ -16,8 +16,11 @@
 #   scripts/live.sh queue URL # operator: queue a Suno song directly (shows cover)
 #   scripts/live.sh next      # operator: move onto the next song (alias: skip)
 #   scripts/live.sh intro     # "starting shortly" screen + intro-music loop
-#   scripts/live.sh outro     # show "thanks for listening" landing screen
 #   scripts/live.sh onair [N] # N-sec on-screen countdown (default 10) → live queue
+#   scripts/live.sh tech      # "technical difficulties" screen (music keeps playing)
+#   scripts/live.sh brb       # "we'll be right back" break screen
+#   scripts/live.sh resume    # back to the live show from tech/brb/outro (no countdown)
+#   scripts/live.sh outro     # sign-off: artist credits + repo/Suno links, fade out
 #   scripts/live.sh json '<json>'  # JSON in/out for other systems (see scripts/live-api.mjs)
 #
 # It runs SOURCE=youtube; OAuth creds + tunables come from .env (see
@@ -98,9 +101,25 @@ status() {
   if [ -n "$p" ]; then echo "[ingest] RUNNING (pid $p)"; else echo "[ingest] not running  (run: $0 start)"; fi
   grep -iE 'source=|connected|resumed' "$LOG" 2>/dev/null | tail -2
   printf '[stream] '; curl -s "$CONTROL/health" 2>/dev/null | grep -oE '"ffmpegUp":[a-z]+|"ffmpegRestarts":[0-9]+|"renderMode":"[a-z]+"' | tr '\n' ' '; echo
+  printf '[show]   '; show_state
   printf '[music]  '; now_playing
   printf '[quota]  '; quota_usage
   echo "[queue]"; queue_list
+}
+
+# current show phase (intro / countdown / onair / outro) from the streamer
+show_state() {
+  local s; s=$(curl -s "$CONTROL/health" 2>/dev/null | grep -oE '"showState":"[a-z]+"' | sed 's/.*:"//;s/"//')
+  case "$s" in
+    intro)     echo "⏸  INTRO — pre-show landing screen + intro music" ;;
+    countdown) echo "⏳  GOING LIVE — on-air countdown running" ;;
+    onair)     echo "🔴 ON AIR — live show" ;;
+    technical) echo "⚠  TECHNICAL DIFFICULTIES screen up" ;;
+    break)     echo "☕ BREAK — \"we'll be right back\" screen up" ;;
+    outro)     echo "⏹  OUTRO — sign-off screen (music fading out)" ;;
+    "")        echo "(unknown — streamer down, or rebuild needed for showState)" ;;
+    *)         echo "$s" ;;
+  esac
 }
 
 # pretty-print whatever's playing (title/artist/requester/likes/queue/cover)
@@ -183,18 +202,30 @@ next_song() {
   printf '  '; now_playing
 }
 
-# operator: standby landing screen (intro/outro) or reveal the live show (off).
-# outro slowly fades the music out; onair fades it back up.
-standby() {
-  local mode="$1"
-  curl -s -X POST "$MUTATE_URL" -H 'content-type: application/json' \
-    -d "{\"action\":\"setStandby\",\"params\":{\"mode\":\"$mode\"}}" >/dev/null \
-    || { echo "[live] failed (is the streamer up?)"; return 1; }
-  case "$mode" in
-    outro) curl -s -X POST "$CONTROL/music/fade" -H 'content-type: application/json' -d '{"to":0,"ms":6000}'   >/dev/null; echo "[live] standby → outro (music fading out…)" ;;
-    off)   curl -s -X POST "$CONTROL/music/fade" -H 'content-type: application/json' -d '{"to":100,"ms":1800}' >/dev/null; echo "[live] on air (music up)" ;;
-    *)     echo "[live] standby → $mode" ;;
+# sign-off: outro screen — credits every Suno artist played since on air + the
+# repo/Suno links, and fades the music out (all handled by the /outro endpoint).
+outro_show() {
+  local resp; resp=$(curl -s -X POST "$CONTROL/outro" -H 'content-type: application/json' -d '{}')
+  case "$resp" in
+    *'"ok":true'*) echo "[live] outro up — crediting artists + links, music fading out…" ;;
+    *) echo "[live] outro failed (is the streamer up?): ${resp:-no response}"; return 1 ;;
   esac
+}
+
+# technical-difficulties screen (music keeps playing underneath it)
+tech_show() {
+  curl -s -X POST "$MUTATE_URL" -H 'content-type: application/json' \
+    -d '{"action":"setStandby","params":{"mode":"technical"}}' >/dev/null \
+    || { echo "[live] failed (is the streamer up?)"; return 1; }
+  echo "[live] ⚠ technical-difficulties screen up"
+}
+
+# "we'll be right back" break screen (music keeps playing underneath it)
+brb_show() {
+  curl -s -X POST "$MUTATE_URL" -H 'content-type: application/json' \
+    -d '{"action":"setStandby","params":{"mode":"break"}}' >/dev/null \
+    || { echo "[live] failed (is the streamer up?)"; return 1; }
+  echo "[live] break screen up — back shortly"
 }
 
 # pre-show: "starting shortly" landing screen + the intro-music loop (the DJ
@@ -221,6 +252,18 @@ onair_show() {
   esac
 }
 
+# resume the live show from a tech / brb / outro overlay — an INSTANT reveal with
+# NO countdown and NO music restart (the show was already live underneath). Unlike
+# `onair` (which starts the show from intro), this just clears the overlay. Brings
+# the music back up in case an outro had faded it down.
+resume_show() {
+  curl -s -X POST "$MUTATE_URL" -H 'content-type: application/json' \
+    -d '{"action":"setStandby","params":{"mode":"off"}}' >/dev/null \
+    || { echo "[live] failed (is the streamer up?)"; return 1; }
+  curl -s -X POST "$CONTROL/music/fade" -H 'content-type: application/json' -d '{"to":100,"ms":1200}' >/dev/null
+  echo "[live] ▶ resumed — back to the live show (no countdown)"
+}
+
 case "${1:-status}" in
   up)        up ;;                 # start the streamer container
   build)     build ;;             # rebuild + start the container (after code changes)
@@ -235,8 +278,11 @@ case "${1:-status}" in
   queue)     if [ -n "${2:-}" ]; then queue_song "$2" "${3:-@operator}"; else echo "[queue]"; queue_list; fi ;;
   next|skip) next_song ;;
   intro)     intro_show ;;        # "starting shortly" screen + intro-music loop
-  outro)     standby outro ;;      # "thanks for listening" landing screen
-  onair|live) onair_show "${2:-10}" ;;  # countdown → reveal show + live queue
+  outro)     outro_show ;;        # sign-off: artist credits + repo/Suno links + fade
+  tech|technical|glitch) tech_show ;;  # "technical difficulties" screen
+  brb|break) brb_show ;;          # "we'll be right back" break screen
+  onair|live) onair_show "${2:-10}" ;;  # countdown → reveal show + live queue (from intro)
+  resume)    resume_show ;;       # instant reveal — back from tech/brb/outro (no countdown)
   json)      shift; node scripts/live-api.mjs "${1:-status}" ;; # JSON in/out for other systems
-  *) echo "usage: $0 {boot|down|up|build | start|stop|restart|status|logs | now|queue [<url>]|next | intro|outro|onair [secs] | json '<json>'}"; exit 1 ;;
+  *) echo "usage: $0 {boot|down|up|build | start|stop|restart|status|logs | now|queue [<url>]|next | intro|onair [secs]|resume|tech|brb|outro | json '<json>'}"; exit 1 ;;
 esac

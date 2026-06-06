@@ -692,6 +692,16 @@
     return { theme, duration: dur };
   }
 
+  // fill the outro credit roll with the unique Suno artists played this session
+  function renderOutroCredits(artists) {
+    const wrap = $("#sb-artists-wrap");
+    const list = $("#sb-artists");
+    const names = (Array.isArray(artists) ? artists : [])
+      .map((a) => clean(a, 40)).filter(Boolean).slice(0, 48);
+    if (list) list.textContent = names.join("   •   ");
+    if (wrap) wrap.dataset.show = names.length ? "true" : "false";
+  }
+
   // ---- the action table ---------------------------------------------------
   const SceneAPI = {
     // smooth by default now (back-compatible with existing setTheme callers)
@@ -1092,23 +1102,40 @@
       return { ok: true, bands: bands || [] };
     },
 
-    // standby / landing screen. mode: "intro" | "outro" | "off" (custom title/
-    // subtitle override the preset). "off" reveals the live show.
+    // standby / landing screen.
+    //   mode: "intro" | "outro" | "technical" | "break" | "off"
+    // (custom title/subtitle override the preset). "off" reveals the live show.
+    // outro additionally shows the credit roll (p.artists), disclaimer, + links.
     setStandby(p = {}) {
       const el = $("#standby");
       if (!el) return { ok: false };
       const mode = String(p.mode || "off").toLowerCase();
-      if (mode === "off") { el.dataset.show = "false"; return { ok: true, mode }; }
+      const extras = $("#sb-extras");
+      el.classList.remove("sb-intro", "sb-outro", "sb-technical", "sb-break");
+      if (mode === "off") {
+        el.dataset.show = "false";
+        if (extras) extras.dataset.show = "false";
+        return { ok: true, mode };
+      }
       const presets = {
-        intro: { title: "Stream starting shortly", sub: "sit tight — the show's about to begin" },
-        outro: { title: "Thanks for listening", sub: "see you next time 👋" },
+        intro:     { title: "Stream starting shortly", sub: "sit tight — the show's about to begin" },
+        outro:     { title: "Thanks for listening", sub: "see you next time 👋" },
+        technical: { title: "Technical difficulties", sub: "we're on it — hang tight, back in a moment" },
+        break:     { title: "We'll be right back", sub: "grabbing a quick break — don't go anywhere" },
       };
-      const d = presets[mode] || presets.intro;
+      const key = presets[mode] ? mode : "intro";
+      const d = presets[key];
+      el.classList.add("sb-" + key);
       const t = $(".sb-title"), s = $(".sb-sub");
       if (t) t.textContent = clean(p.title, 60) || d.title;
       if (s) s.textContent = clean(p.subtitle, 90) || d.sub;
+      // outro-only credits + disclaimer + links
+      if (extras) {
+        if (key === "outro") { renderOutroCredits(p.artists); extras.dataset.show = "true"; }
+        else extras.dataset.show = "false";
+      }
       el.dataset.show = "true";
-      return { ok: true, mode };
+      return { ok: true, mode: key };
     },
 
     // "going live in 10…" countdown shown during the intro→on-air handoff. Each

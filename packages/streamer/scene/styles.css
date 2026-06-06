@@ -644,6 +644,25 @@ body.lite-render .ovl-scanlines { mix-blend-mode: normal; }
 @keyframes sbpan { to { background-position: 200% center; } }
 .sb-sub { margin: 16px 0 0; font-size: 23px; font-weight: 500; letter-spacing: 0.02em; color: rgba(255,255,255,0.62); }
 
+/* outro-only block: artist credits + Suno-rights disclaimer + repo/Suno links */
+#sb-extras { margin-top: 24px; display: flex; flex-direction: column; align-items: center; max-width: 1000px; }
+#sb-extras[data-show="false"] { display: none; }
+#sb-artists-wrap[data-show="false"] { display: none; }
+.sb-credits-label { font-size: 13px; font-weight: 700; letter-spacing: 0.26em; color: rgba(255,255,255,0.5); margin-bottom: 8px; }
+#sb-artists { font-size: 19px; font-weight: 600; line-height: 1.5; color: rgba(255,255,255,0.88); max-width: 900px; text-align: center; }
+.sb-disclaimer { margin: 20px 0 0; max-width: 760px; font-size: 15px; line-height: 1.5; color: rgba(255,255,255,0.6); }
+.sb-links { display: flex; gap: 32px; margin-top: 22px; flex-wrap: wrap; justify-content: center; }
+.sb-link { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; color: rgba(255,255,255,0.9); }
+.sb-logo { display: block; width: auto; height: 24px; }
+.sb-logo-suno { width: 30px; height: 30px; border-radius: 7px; object-fit: cover; }
+/* outro is content-dense — tighten the header so it all fits at 720p */
+#standby.sb-outro .sb-pulse { height: 30px; margin-bottom: 16px; }
+#standby.sb-outro .sb-title { font-size: 52px; }
+
+/* technical-difficulties: warm amber/red accent so it reads as a fault state */
+#standby.sb-technical .sb-title { background-image: linear-gradient(92deg, #ffd35a, #ff5d5d, #ffd35a); }
+#standby.sb-technical .sb-pulse i { background: linear-gradient(#ffd35a, #ff5d5d); box-shadow: 0 0 14px rgba(255,93,93,0.5); }
+
 /* "going live" countdown — big themed number centered above the standby screen */
 #countdown {
   position: absolute; inset: 0; z-index: 12; pointer-events: none;

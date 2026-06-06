@@ -48,6 +48,10 @@ let dj = null;        // auto-DJ daemon (music)
 let meter = null;     // audio level meter (eq bars)
 let renderMode = "?"; // gpu | cpu
 let gpuRenderer = "";
+// current show phase, tracked from the directives that drive it (see
+// applyDirective): "intro" (pre-show) | "countdown" | "onair" | "outro".
+// Defaults to onair; set to intro on boot when STANDBY_ON_BOOT is on.
+let showState = "onair";
 
 /**
  * Apply a single directive to the live page by calling the named SceneAPI
@@ -61,6 +65,14 @@ async function applyDirective(directive) {
     throw new Error(`disallowed action: ${action}`);
   }
   const params = directive?.params && typeof directive.params === "object" ? directive.params : {};
+  // remember the show phase so /health (and `live.sh status`) can report it.
+  // These directives are the single source of truth, whatever calls them.
+  if (action === "setStandby") {
+    const m = String(params.mode || "off").toLowerCase();
+    showState = m === "off" ? "onair" : m; // intro | outro | technical | break
+  } else if (action === "setCountdown") {
+    showState = "countdown";
+  }
   return page.evaluate(
     (a, p) => {
       if (!window.SceneAPI || typeof window.SceneAPI[a] !== "function") {
@@ -87,6 +99,7 @@ function buildControlApp() {
     res.json({
       ok: true,
       sceneReady: !!page,
+      showState,
       ffmpegUp: streamer ? streamer.isUp() : false,
       ffmpegRestarts: streamer ? streamer.restarts() : 0,
       renderMode,
@@ -150,6 +163,15 @@ function buildControlApp() {
       applyDirective({ action: "setStandby", params: { mode: "off" } }).catch(() => {});
       if (dj) dj.setMode("live"); // fades intro out → first queued/rotation track up
     }, secs * 1000);
+  });
+
+  // sign-off: outro screen crediting every Suno artist played since we went on
+  // air (a thank-you), plus the repo + Suno links, then fade the music out.
+  app.post("/outro", async (req, res) => {
+    const artists = dj ? dj.artists() : [];
+    await applyDirective({ action: "setStandby", params: { mode: "outro", artists } }).catch(() => {});
+    if (dj) dj.fade(0, 6000); // gentle sign-off fade
+    res.json({ ok: true, artists });
   });
 
   // report the WebGL renderer (proxy for whether the GPU is hardware-accelerated)
