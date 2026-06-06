@@ -18,7 +18,7 @@ const BLOCK_PATTERNS = [
   /\bn[i1]gg/i, // slur stem
   /\bf[a4]g/i, // slur stem
   /\bk[i1]ll\s+(yourself|urself)\b/i,
-  /https?:\/\/(?!(?:www\.)?suno\.com\/s\/)\S+/i, // block links EXCEPT suno share links (music requests)
+  /https?:\/\/(?!(?:www\.)?suno\.com\/(?:s|song)\/)\S+/i, // block links EXCEPT suno music links (/s/ share + /song/ page)
   /\b(free\s+v-?bucks|crypto\s+giveaway|t\.me\/|discord\.gg\/)\b/i,
 ];
 

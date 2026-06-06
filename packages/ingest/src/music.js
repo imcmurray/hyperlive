@@ -2,7 +2,10 @@
 // current song) and forward to the streamer's music control plane. The link is
 // only PARSED here; the streamer resolves + CDN-allowlists it before playing.
 
-const SHARE_RE = /https?:\/\/suno\.com\/s\/[A-Za-z0-9]+/;
+// accept BOTH Suno link forms: the /s/ short share link AND the /song/<uuid>
+// song-page URL (what the address bar / "copy link" gives). The streamer resolves
+// + CDN-allowlists either before it ever reaches the player.
+const SHARE_RE = /https?:\/\/(?:www\.)?suno\.com\/(?:s\/[A-Za-z0-9]+|song\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
 const LIKE_RE = /^\s*!\s*like\s*$/i;                 // explicit "like the song" command
 const HEART_RE = /[❤♥\u{1F49B}-\u{1F49F}\u{1F44D}]|❤️/u; // hearts / thumbs-up
 

@@ -7,7 +7,9 @@
 // Suno has no public API, so this HTML scrape is intentionally defensive and
 // fails closed — a resolve failure just means the song isn't queued.
 
-const SHARE_RE = /https?:\/\/suno\.com\/s\/[A-Za-z0-9]+/;
+// accept the /s/ short share link AND the /song/<uuid> song-page URL; resolveSuno
+// scrapes either the same way (the short link just redirects to the song page)
+const SHARE_RE = /https?:\/\/(?:www\.)?suno\.com\/(?:s\/[A-Za-z0-9]+|song\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
 // a real clip is a uuid (8-4-4-4-12); this won't match the "sil-100.mp3" silence stub
 const CDN_RE = /https?:\/\/cdn\d*\.suno\.ai\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.mp3/gi;
 const UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
