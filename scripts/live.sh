@@ -141,7 +141,7 @@ queue_list() {
         const q = JSON.parse(s), reqs = q.queue || [], rot = q.rotation || [];
         if (reqs.length) reqs.forEach((t, i) => console.log("  " + (i + 1) + ". " + t.title + " — " + t.artist + (t.who ? "  (req " + t.who + ")" : "") + (t.image ? "  cover ✓" : "")));
         else console.log("  (no requests — playing the house rotation)");
-        if (rot.length) { console.log("  house rotation:"); rot.slice(0, 8).forEach((t, i) => console.log("    " + (i === 0 ? "→ " : "  ") + t.title + " — " + t.artist)); }
+        if (rot.length) { console.log("  house rotation (" + rot.length + "):"); rot.forEach((t, i) => console.log("    " + (i === 0 ? "→ " : "  ") + t.title + " — " + t.artist)); }
       } catch (e) { console.log("  (queue unavailable)"); } });
     '
   else
