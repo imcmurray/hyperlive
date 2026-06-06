@@ -31,6 +31,11 @@
   };
   function clean(text, max = 180) {
     return String(text ?? "")
+      // fold "fancy" Unicode (Mathematical Alphanumeric Symbols, fullwidth, etc.)
+      // to plain ASCII — e.g. 𝓙𝓸𝓼𝓲𝓮 → Josie — so names render as letters instead
+      // of tofu blocks (the container's fonts don't cover U+1D400…). NFKC keeps
+      // real accents, ✓, and emoji intact.
+      .normalize("NFKC")
       .replace(/[\x00-\x1f]/g, " ")
       .replace(/[<>]/g, "")
       .slice(0, max)
