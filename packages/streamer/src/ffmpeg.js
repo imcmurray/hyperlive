@@ -23,14 +23,20 @@ function audioEncode() {
   return [...delay, "-c:a", "aac", "-b:a", "128k", "-ar", "44100"];
 }
 
-// software H.264 (libx264)
+// software H.264 (libx264). CBR by default: PAD to the target bitrate so YouTube
+// always gets its recommended rate even on calm/near-static scenes — a plain
+// -b:v cap under-shoots hard there (that's the "stream bitrate too low" warning).
+// Set X264_RC=vbr to cap-not-pad (smaller, variable — e.g. for OUTPUT_FILE tests).
 function x264Video(fps, bitrate) {
   const gop = fps * 2;
+  const kbps = parseInt(bitrate);
+  const cbr = (process.env.X264_RC || "cbr").toLowerCase() !== "vbr";
   return [
     "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-profile:v", "main",
     "-pix_fmt", "yuv420p", "-r", String(fps), "-vsync", "cfr",
     "-g", String(gop), "-keyint_min", String(fps), "-sc_threshold", "0",
-    "-b:v", bitrate, "-maxrate", bitrate, "-bufsize", `${parseInt(bitrate) * 2}k`,
+    "-b:v", bitrate, "-maxrate", bitrate, "-bufsize", `${kbps * 2}k`,
+    ...(cbr ? ["-minrate", bitrate, "-x264-params", "nal-hrd=cbr:force-cfr=1"] : []),
   ];
 }
 
@@ -70,8 +76,12 @@ function buildScreencastArgs(s) {
       "-framerate", String(s.fps), "-f", "image2pipe", "-i", "pipe:0",
       ...audioInput(),
       "-vf", "format=nv12,hwupload",
-      // iHD low-power encoder only supports CQP (constant quality) rate control
-      "-c:v", "h264_vaapi", "-rc_mode", "CQP", "-qp", String(parseInt(process.env.GPU_QP || "24")),
+      // This iGPU exposes only the low-power H264 encoder (VAEntrypointEncSliceLP),
+      // which ONLY supports CQP — no VBR/CBR, so we can't target a bitrate on the
+      // GPU. QP is the only lever: LOWER qp ⇒ higher quality + higher bitrate (the
+      // fix for "bitrate too low" on calm scenes). For a GUARANTEED bitrate, use
+      // the CPU path instead (HW_ENCODE=false → libx264 CBR, padded to target).
+      "-c:v", "h264_vaapi", "-rc_mode", "CQP", "-qp", String(parseInt(process.env.GPU_QP || "20")),
       "-g", String(s.fps * 2), "-r", String(s.fps), "-vsync", "cfr",
       ...audioEncode(),
       "-shortest",
