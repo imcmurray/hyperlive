@@ -12,29 +12,14 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";
 import { getAccessToken } from "./youtube-auth.js";
+import { bill, unitsSpent, loadUsage } from "./quota.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // NB: control/ is root-owned (the streamer container writes there), so the
 // host-run ingest can't write it — keep the cursor in a user-writable dir.
 const CURSOR_FILE = process.env.YT_CURSOR_FILE || "./state/yt-cursor.json";
-const USAGE_FILE = process.env.YT_USAGE_FILE || "./state/yt-usage.json";
 const SEEN_MAX = 800; // in-memory cap on the processed-id log (persist the tail)
-
-// --- quota accounting (units spent today; resets at midnight Pacific) ---
-const pacificDate = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
-let usage = null; // { date, units, calls } — written to USAGE_FILE so live.sh can read it
-async function loadUsage() {
-  try { const u = JSON.parse(await readFile(USAGE_FILE, "utf8")); if (u && u.date === pacificDate()) return u; } catch { /* none/stale */ }
-  return { date: pacificDate(), units: 0, calls: 0 };
-}
-async function bill(n = 1) { // count an API call (+ its quota units)
-  if (!usage) usage = await loadUsage();
-  const today = pacificDate();
-  if (usage.date !== today) usage = { date: today, units: 0, calls: 0 }; // daily reset
-  usage.units += (config.yt.unitsPerCall || 5) * n;
-  usage.calls += n;
-  try { await mkdir(path.dirname(USAGE_FILE), { recursive: true }); await writeFile(USAGE_FILE, JSON.stringify(usage)); } catch { /* non-fatal */ }
-}
+const CHAT_UNITS = config.yt.unitsPerCall || 5; // liveChatMessages.list cost
 
 async function loadCursor() {
   try { return JSON.parse(await readFile(CURSOR_FILE, "utf8")); } catch { return null; }
@@ -62,23 +47,26 @@ function toComment(item) {
   };
 }
 
-async function discoverLiveChatId(token) {
+// discover the active broadcast → its video id (== broadcast id, what statistics
+// are keyed by) and its liveChatId. Shared by the chat poller and the like poller.
+export async function discoverActiveBroadcast(token) {
   const url = new URL("https://www.googleapis.com/youtube/v3/liveBroadcasts");
   url.searchParams.set("part", "snippet");
   url.searchParams.set("broadcastStatus", "active");
   url.searchParams.set("broadcastType", "all");
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  await bill(); // liveBroadcasts.list also costs quota
+  await bill(1); // liveBroadcasts.list ≈ 1 unit
   if (!res.ok) throw new Error(`liveBroadcasts.list http ${res.status}: ${(await res.text()).slice(0, 160)}`);
   const j = await res.json();
-  return j.items?.[0]?.snippet?.liveChatId || "";
+  const item = j.items?.[0];
+  return { id: item?.id || "", liveChatId: item?.snippet?.liveChatId || "" };
 }
 
 async function resolveLiveChatId(token) {
   if (config.yt.liveChatId) return config.yt.liveChatId;
   for (;;) {
-    const id = await discoverLiveChatId(token).catch((e) => { console.error("[youtube] discover:", e.message); return ""; });
-    if (id) return id;
+    const b = await discoverActiveBroadcast(token).catch((e) => { console.error("[youtube] discover:", e.message); return { liveChatId: "" }; });
+    if (b.liveChatId) return b.liveChatId;
     console.log("[youtube] no active broadcast yet — re-checking in 15s (start 'Go Live' on YouTube)");
     await sleep(15000);
   }
@@ -95,16 +83,16 @@ export async function* youtubeSource() {
   let pageToken = resuming ? saved.pageToken : "";
   let first = !resuming;                                  // skip backlog only on a fresh start
   const seen = new Set(resuming ? (saved.seen || []) : []);
-  usage = await loadUsage();
-  console.log(`[youtube] connected — liveChatId=${liveChatId.slice(0, 14)}…${resuming ? ` (resumed, ${seen.size} seen)` : ""} | quota ${usage.units}/${config.yt.quotaLimit} units today`);
+  await loadUsage();
+  console.log(`[youtube] connected — liveChatId=${liveChatId.slice(0, 14)}…${resuming ? ` (resumed, ${seen.size} seen)` : ""} | quota ${unitsSpent()}/${config.yt.quotaLimit} units today`);
 
   let lastSave = 0;
   let emptyStreak = 0; // consecutive empty polls → back off the interval
   for (;;) {
     // SAFETY CUTOFF: stop polling before we exceed the daily quota (music +
     // visuals keep running; restart the ingest after the Pacific-midnight reset)
-    if (usage.units >= config.yt.quotaLimit) {
-      console.log(`[youtube] quota cutoff: spent ${usage.units}/${config.yt.quotaLimit} units today — stopping chat polling. Restart after midnight Pacific.`);
+    if (unitsSpent() >= config.yt.quotaLimit) {
+      console.log(`[youtube] quota cutoff: spent ${unitsSpent()}/${config.yt.quotaLimit} units today — stopping chat polling. Restart after midnight Pacific.`);
       return;
     }
 
@@ -118,8 +106,8 @@ export async function* youtubeSource() {
     let data;
     try {
       let res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      await bill(); // a liveChatMessages.list call (~5 units)
-      if (res.status === 401) { token = await getAccessToken(true); res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } }); await bill(); }
+      await bill(CHAT_UNITS); // a liveChatMessages.list call (~5 units)
+      if (res.status === 401) { token = await getAccessToken(true); res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } }); await bill(CHAT_UNITS); }
       if (res.status === 400 && pageToken) { // a stale/expired pageToken → start fresh
         console.log("[youtube] saved cursor rejected — starting fresh (skipping backlog)");
         pageToken = ""; first = true; continue;

@@ -15,6 +15,7 @@ import { createVotes } from "./votes.js";
 import { createMusic, parseSunoShare, isLikeCommand, hasHeart } from "./music.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
 import { youtubeSource } from "./youtube.js";
+import { createStreamLikes } from "./stream-likes.js";
 
 const moderator = createModerator();
 const director = createDirector();
@@ -150,8 +151,15 @@ async function main() {
   const moodEngine = config.mood ? createMoodEngine({ state: moodState, postMutate, log: console.log }) : null;
   if (moodEngine) moodEngine.start();
 
+  // Stream-like milestones: poll the YouTube video's like count and celebrate
+  // milestones (youtube source only — the simulator has no real likes)
+  const streamLikes = (config.source === "youtube" && config.streamLikes)
+    ? createStreamLikes({ postMutate, log: console.log }) : null;
+  if (streamLikes) streamLikes.start();
+
   process.on("SIGINT", () => {
     if (moodEngine) moodEngine.stop();
+    if (streamLikes) streamLikes.stop();
     votes.stop();
     console.log(`\n[ingest] stopping. processed=${processed} applied=${applied} blocked=${blocked}`);
     process.exit(0);

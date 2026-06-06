@@ -48,6 +48,11 @@ export const config = {
   // on-screen "typed → on-scene" latency readout
   showDelay: (process.env.SHOW_DELAY || "on").toLowerCase() !== "off",
 
+  // --- Stream-like milestones (YouTube video likeCount → celebratory shoutouts) ---
+  // distinct from chat hearts, which like the current SONG. youtube source only.
+  streamLikes: (process.env.STREAM_LIKES || "on").toLowerCase() !== "off",
+  streamLikesPollMs: num(process.env.STREAM_LIKES_POLL_MS, 45000), // videos.list ≈ 1 unit/poll
+
   // --- YouTube source (only needed when source=youtube). See docs/youtube-oauth.md ---
   yt: {
     // OAuth: refresh token mints access tokens automatically (24/7, no human).
@@ -56,6 +61,7 @@ export const config = {
     refreshToken: process.env.YT_REFRESH_TOKEN || "",
     // optional overrides: pin a chat id, or supply a short-lived token directly
     liveChatId: process.env.YT_LIVE_CHAT_ID || "", // blank = auto-discover the active broadcast
+    videoId: process.env.YT_VIDEO_ID || "",        // blank = auto-discover (for stream-like polling)
     accessToken: process.env.YT_ACCESS_TOKEN || "", // bypass refresh (manual/testing only)
     // Adaptive polling: poll fast while chat is active, back off when it's quiet
     // — far fewer calls/day than a fixed interval. (list = ~5 units/call,
