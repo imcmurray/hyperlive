@@ -15,9 +15,9 @@
 #   scripts/live.sh queue     # list the waiting request queue
 #   scripts/live.sh queue URL # operator: queue a Suno song directly (shows cover)
 #   scripts/live.sh next      # operator: move onto the next song (alias: skip)
-#   scripts/live.sh intro     # show "starting shortly" landing screen
+#   scripts/live.sh intro     # "starting shortly" screen + intro-music loop
 #   scripts/live.sh outro     # show "thanks for listening" landing screen
-#   scripts/live.sh onair     # reveal the live show (hide the landing screen)
+#   scripts/live.sh onair [N] # N-sec on-screen countdown (default 10) → live queue
 #   scripts/live.sh json '<json>'  # JSON in/out for other systems (see scripts/live-api.mjs)
 #
 # It runs SOURCE=youtube; OAuth creds + tunables come from .env (see
@@ -197,6 +197,30 @@ standby() {
   esac
 }
 
+# pre-show: "starting shortly" landing screen + the intro-music loop (the DJ
+# loops the INTRO tracks until `onair`). Music is brought up in case a prior
+# outro had faded it down.
+intro_show() {
+  curl -s -X POST "$MUTATE_URL" -H 'content-type: application/json' \
+    -d '{"action":"setStandby","params":{"mode":"intro"}}' >/dev/null \
+    || { echo "[live] failed (is the streamer up?)"; return 1; }
+  curl -s -X POST "$CONTROL/music/mode" -H 'content-type: application/json' -d '{"mode":"intro"}' >/dev/null
+  curl -s -X POST "$CONTROL/music/fade" -H 'content-type: application/json' -d '{"to":100,"ms":1800}' >/dev/null
+  echo "[live] intro screen up + intro music looping"
+}
+
+# go ON AIR: a ${1:-10}s on-screen countdown, then reveal the show and switch the
+# DJ from intro music to the live request queue / rotation. The streamer owns the
+# timing so the countdown and the music handoff stay in lock-step.
+onair_show() {
+  local secs="${1:-10}" resp
+  resp=$(curl -s -X POST "$CONTROL/onair" -H 'content-type: application/json' -d "{\"seconds\":$secs}")
+  case "$resp" in
+    *'"ok":true'*) echo "[live] going on air — ${secs}s countdown, then the live queue" ;;
+    *) echo "[live] onair failed (is the streamer up?): ${resp:-no response}"; return 1 ;;
+  esac
+}
+
 case "${1:-status}" in
   up)        up ;;                 # start the streamer container
   build)     build ;;             # rebuild + start the container (after code changes)
@@ -210,9 +234,9 @@ case "${1:-status}" in
   now)       printf '  '; now_playing ;;
   queue)     if [ -n "${2:-}" ]; then queue_song "$2" "${3:-@operator}"; else echo "[queue]"; queue_list; fi ;;
   next|skip) next_song ;;
-  intro)     standby intro ;;   # "starting shortly" landing screen
-  outro)     standby outro ;;   # "thanks for listening" landing screen
-  onair|live) standby off ;;    # reveal the live show
+  intro)     intro_show ;;        # "starting shortly" screen + intro-music loop
+  outro)     standby outro ;;      # "thanks for listening" landing screen
+  onair|live) onair_show "${2:-10}" ;;  # countdown → reveal show + live queue
   json)      shift; node scripts/live-api.mjs "${1:-status}" ;; # JSON in/out for other systems
-  *) echo "usage: $0 {boot|down|up|build | start|stop|restart|status|logs | now|queue [<url>]|next | intro|outro|onair | json '<json>'}"; exit 1 ;;
+  *) echo "usage: $0 {boot|down|up|build | start|stop|restart|status|logs | now|queue [<url>]|next | intro|outro|onair [secs] | json '<json>'}"; exit 1 ;;
 esac

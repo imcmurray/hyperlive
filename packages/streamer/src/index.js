@@ -36,6 +36,7 @@ const ALLOWED_ACTIONS = new Set([
   "setNowPlaying",
   "setEqLevels",
   "setStandby",
+  "setCountdown",
   "renderWarning",
   "status",
 ]);
@@ -132,6 +133,24 @@ function buildControlApp() {
   app.get("/music/status", (_req, res) => res.json(dj ? dj.status() : { ok: false, music: false }));
   // full up-next: requested songs + the house rotation
   app.get("/music/queue", (_req, res) => res.json(dj ? dj.queueInfo() : { ok: false, music: false }));
+  // switch the DJ playlist: "intro" (pre-show loop) ⇄ "live" (queue + rotation)
+  app.post("/music/mode", (req, res) => {
+    if (!dj) return res.status(503).json({ ok: false, reason: "music off" });
+    res.json(dj.setMode(String(req.body?.mode || "live")));
+  });
+
+  // go ON AIR: run the on-screen countdown, then reveal the show + switch the DJ
+  // from intro music to the live queue. The timing lives here (not the operator's
+  // shell) so the visual countdown and the music handoff stay in lock-step.
+  app.post("/onair", async (req, res) => {
+    const secs = Math.max(3, Math.min(30, Number(req.body?.seconds) || 10));
+    await applyDirective({ action: "setCountdown", params: { seconds: secs } }).catch(() => {});
+    res.json({ ok: true, seconds: secs });
+    setTimeout(() => {
+      applyDirective({ action: "setStandby", params: { mode: "off" } }).catch(() => {});
+      if (dj) dj.setMode("live"); // fades intro out → first queued/rotation track up
+    }, secs * 1000);
+  });
 
   // report the WebGL renderer (proxy for whether the GPU is hardware-accelerated)
   app.get("/gpu", async (_req, res) => {
@@ -383,6 +402,9 @@ async function main() {
   // and pushes now-playing/likes/queue to the scene. Only when AUDIO_MODE=music.
   if (config.music) {
     dj = createDJ({
+      // boot into intro music when we come up on the standby screen, so the
+      // pre-show has its own loop until the operator runs `live.sh onair`
+      mode: config.standbyOnBoot ? "intro" : "live",
       onUpdate: (st) => { applyDirective({ action: "setNowPlaying", params: st }).catch(() => {}); },
       log: console.log,
     });

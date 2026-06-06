@@ -644,6 +644,28 @@ body.lite-render .ovl-scanlines { mix-blend-mode: normal; }
 @keyframes sbpan { to { background-position: 200% center; } }
 .sb-sub { margin: 16px 0 0; font-size: 23px; font-weight: 500; letter-spacing: 0.02em; color: rgba(255,255,255,0.62); }
 
+/* "going live" countdown — big themed number centered above the standby screen */
+#countdown {
+  position: absolute; inset: 0; z-index: 12; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  /* a soft scrim so the number reads cleanly over whatever's behind (the intro
+     screen or the live scene) — fades out with the overlay for a dramatic reveal */
+  background: radial-gradient(ellipse at center, rgba(4,3,12,0.58), rgba(2,1,8,0.84));
+}
+#countdown[data-show="false"] { display: none; }
+.cd-label {
+  font-size: 30px; font-weight: 700; letter-spacing: 0.28em; text-transform: uppercase;
+  color: rgba(255,255,255,0.72); margin-bottom: 12px;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--c1) 55%, transparent);
+}
+.cd-num {
+  font-size: 240px; font-weight: 900; line-height: 1; letter-spacing: -0.02em;
+  background: linear-gradient(92deg, var(--c1), var(--c3), var(--c1));
+  background-size: 200% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  filter: drop-shadow(0 0 42px color-mix(in srgb, var(--c1) 55%, transparent));
+}
+
 #flash { position: absolute; inset: 0; z-index: 8; pointer-events: none; background: #fff; opacity: 0; }
 
 /* expanding shockwave ring emitted by burst */

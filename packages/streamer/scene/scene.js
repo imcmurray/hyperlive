@@ -75,6 +75,7 @@
   let npBgTween = null;      // now-playing cover Ken Burns drift
   let coverLayer = 0;        // which full-stage cover layer is visible (0=a, 1=b)
   let npImg = "";            // current cover url (restart the drift only on track change)
+  let countdownCalls = [];   // the running "going live" countdown's scheduled ticks
 
   // ---- full-stage cover backdrop: crossfade between songs, slow drift + a
   // gentle focus pull (unblur → reblur) for life. Two layers crossfade.
@@ -1108,6 +1109,50 @@
       if (s) s.textContent = clean(p.subtitle, 90) || d.sub;
       el.dataset.show = "true";
       return { ok: true, mode };
+    },
+
+    // "going live in 10…" countdown shown during the intro→on-air handoff. Each
+    // second pops a big number; at 0 it flashes "LIVE", bursts, and clears itself.
+    // Sits ABOVE the standby screen so it reads while the pre-show is still up.
+    setCountdown(p = {}) {
+      const el = $("#countdown");
+      if (!el) return { ok: false };
+      const secs = Math.round(clampNum(p.seconds, 1, 60, 10));
+      const numEl = el.querySelector(".cd-num");
+      const labelEl = el.querySelector(".cd-label");
+      // clear any countdown already running (a re-trigger restarts cleanly)
+      countdownCalls.forEach((c) => c && c.kill && c.kill());
+      countdownCalls = [];
+      if (labelEl) labelEl.textContent = clean(p.label, 24) || "GOING LIVE IN";
+      el.dataset.show = "true";
+      if (!gsap) {
+        if (numEl) numEl.textContent = String(secs);
+        setTimeout(() => { el.dataset.show = "false"; }, secs * 1000);
+        return { ok: true, seconds: secs };
+      }
+      gsap.set(el, { opacity: 1 });
+      const pop = (txt) => {
+        if (!numEl) return;
+        numEl.textContent = txt;
+        gsap.killTweensOf(numEl);
+        gsap.fromTo(numEl, { scale: 0.45, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.34, ease: "back.out(2.4)" });
+        gsap.to(numEl, { scale: 1.18, opacity: 0, duration: 0.5, delay: 0.5, ease: "power2.in" });
+      };
+      for (let i = 0; i < secs; i++) countdownCalls.push(gsap.delayedCall(i, () => pop(String(secs - i))));
+      countdownCalls.push(gsap.delayedCall(secs, () => {
+        if (labelEl) labelEl.textContent = "";
+        if (numEl) {
+          numEl.textContent = "LIVE";
+          gsap.killTweensOf(numEl);
+          gsap.fromTo(numEl, { scale: 0.5, opacity: 0 }, { scale: 1.2, opacity: 1, duration: 0.4, ease: "back.out(2)" });
+        }
+        SceneAPI.burst({ intensity: 0.7 });
+        countdownCalls.push(gsap.delayedCall(1.15, () => {
+          gsap.to(el, { opacity: 0, duration: 0.5, ease: "power2.in",
+            onComplete: () => { el.dataset.show = "false"; el.style.opacity = ""; if (numEl) numEl.textContent = ""; } });
+        }));
+      }));
+      return { ok: true, seconds: secs };
     },
 
     // show/hide the CPU-rendering warning banner (operator can dismiss it)

@@ -50,7 +50,15 @@ try {
       else if (mode === "off") await jpost("/music/fade", { to: 100, ms: 1800 });   // back on air
       out(r); break;
     }
+    case "intro": {                              // pre-show screen + intro-music loop
+      const r = await jpost("/mutate", { action: "setStandby", params: { mode: "intro", title: req.title, subtitle: req.subtitle } });
+      await jpost("/music/mode", { mode: "intro" });
+      await jpost("/music/fade", { to: 100, ms: 1800 });
+      out(r); break;
+    }
+    case "onair": out(await jpost("/onair", { seconds: req.seconds })); break;       // countdown → reveal + live queue
+    case "mode":  out(await jpost("/music/mode", { mode: req.mode || "live" })); break; // DJ playlist: intro ⇄ live
     case "mutate": out(await jpost("/mutate", { action: req.action, params: req.params || {} })); break; // any allowed scene directive
-    default: out({ ok: false, error: `unknown cmd: ${cmd}`, cmds: ["status", "now", "queue", "quota", "enqueue", "skip", "fade", "standby", "mutate"] });
+    default: out({ ok: false, error: `unknown cmd: ${cmd}`, cmds: ["status", "now", "queue", "quota", "enqueue", "skip", "fade", "standby", "intro", "onair", "mode", "mutate"] });
   }
 } catch (e) { out({ ok: false, error: e.message }); process.exitCode = 1; }

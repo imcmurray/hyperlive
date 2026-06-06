@@ -11,18 +11,25 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolveSuno } from "./resolve.js";
 import { ROTATION } from "./rotation.js";
+import { INTRO } from "./intro.js";
 import { config } from "../config.js";
 
 // the waiting request queue is persisted here so a streamer restart doesn't drop
 // viewer requests (the bind-mounted control/ survives container rebuilds)
 const QUEUE_FILE = process.env.MUSIC_QUEUE_FILE || "./control/music-queue.json";
 
-export function createDJ({ onUpdate = () => {}, log = () => {} }) {
+export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMode = "live" }) {
   const rotation = [];        // resolved house tracks {audioUrl,title,artist,share}
+  const intro = [];           // resolved pre-show intro tracks (looped in "intro" mode)
   const queue = [];           // resolved requests {..., who}
   let current = null;         // the playing track (+ .likes Set, .who)
   let player = null;          // mpv child
   let rotIdx = 0;
+  let introIdx = 0;
+  // "intro" = loop the pre-show INTRO tracks (under the standby screen);
+  // "live"  = play the request queue, then the house rotation. Going on air
+  // flips intro → live (see setMode).
+  let mode = initialMode === "intro" ? "intro" : "live";
   let stopped = false;
   let updateTimer = null;
 
@@ -67,9 +74,10 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
       artist: current?.artist || "",
       image: current?.image || "",         // cover art (Suno og:image)
       who: current?.who || "",            // who requested it ("" = house rotation)
-      source: current?.source || "",       // "request" | "rotation"
+      source: current?.source || "",       // "intro" | "request" | "rotation"
       likes: current ? current.likes.size : 0,
       queue: queue.length,
+      mode,                                // "intro" (pre-show) | "live"
     };
   }
   // full up-next picture: requested songs, then the house rotation (ordered so
@@ -102,6 +110,13 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
   }
 
   function nextTrack() {
+    // pre-show: loop the intro tracks until we go on air (falls through to the
+    // queue/rotation if no intro track resolved, so the show is never silent)
+    if (mode === "intro" && intro.length) {
+      const t = intro[introIdx % intro.length];
+      introIdx += 1;
+      return { ...t, who: "", source: "intro" };
+    }
     if (queue.length) { const t = queue.shift(); saveQueue(); return { ...t, source: "request" }; }
     if (!rotation.length) return null;
     const t = rotation[rotIdx % rotation.length];
@@ -151,6 +166,9 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
       log(`[dj] resolving ${ROTATION.length} rotation tracks…`);
       rotation.push(...(await resolveAll(ROTATION)));
       log(`[dj] rotation ready: ${rotation.length}/${ROTATION.length} tracks`);
+      log(`[dj] resolving ${INTRO.length} intro tracks…`);
+      intro.push(...(await resolveAll(INTRO)));
+      log(`[dj] intro ready: ${intro.length}/${INTRO.length} tracks (boot mode=${mode})`);
       // restore any persisted request queue (survives a streamer restart)
       const saved = await loadQueue();
       if (saved.length) { queue.push(...saved); log(`[dj] restored ${saved.length} queued request(s)`); }
@@ -190,6 +208,25 @@ export function createDJ({ onUpdate = () => {}, log = () => {} }) {
       log("  ♪ skip (fade segue)");
       fade(0, 700);
       setTimeout(() => { skipping = true; fadeInPending = true; if (player) player.kill("SIGTERM"); }, 720);
+    },
+    // switch the playlist: "intro" (pre-show loop) ⇄ "live" (queue + rotation).
+    // A real change segues through silence — fade the current track out, swap to
+    // the new mode's first track, fade it up — the same clean transition skip()
+    // uses (and the exit handler treats it as a skip, not a fast-fail).
+    setMode(newMode) {
+      const next = newMode === "intro" ? "intro" : "live";
+      if (next === mode) return { ok: true, mode, changed: false };
+      mode = next;
+      if (mode === "intro") introIdx = 0;
+      log(`[dj] mode → ${mode}`);
+      if (player) {
+        fade(0, 700);
+        setTimeout(() => { skipping = true; fadeInPending = true; if (player) player.kill("SIGTERM"); }, 720);
+      } else if (!stopped) {
+        play(nextTrack() || { title: "", artist: "", audioUrl: "", who: "", source: "" });
+      }
+      pushUpdate();
+      return { ok: true, mode, changed: true };
     },
     fade,                       // fade(targetPct, ms) — outro fade-out / onair fade-in
     status,
