@@ -9,6 +9,7 @@ import { config, ingestUrl } from "./config.js";
 import { startStreamer, startScreencastStreamer } from "./ffmpeg.js";
 import { createDJ } from "./music/dj.js";
 import { createMeter } from "./music/meter.js";
+import { visionCheck, visionEnabled } from "./vision.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCENE_DIR = path.resolve(__dirname, "../scene");
@@ -39,7 +40,11 @@ const ALLOWED_ACTIONS = new Set([
   "setCountdown",
   "renderWarning",
   "status",
+  "mutateElement", // Tier 1: clamped ops against registry elements only
 ]);
+// NB: showCard/takeover/clearCards are deliberately NOT in this allowlist —
+// model-authored markup may only enter through POST /card and /takeover below,
+// which pre-render off-air and vision-gate before anything reaches the scene.
 
 let page = null;
 let streamer = null;
@@ -74,6 +79,14 @@ async function applyDirective(directive) {
   } else if (action === "setCountdown") {
     showState = "countdown";
   }
+  return evalScene(action, params);
+}
+
+// the raw scene call (no allowlist) — for internal callers that carry their
+// own authorization: the card/takeover vision gate and GET /elements. All
+// external mutation goes through applyDirective's allowlist above.
+async function evalScene(action, params = {}) {
+  if (!page) throw new Error("scene not ready");
   return page.evaluate(
     (a, p) => {
       if (!window.SceneAPI || typeof window.SceneAPI[a] !== "function") {
@@ -90,9 +103,32 @@ async function applyDirective(directive) {
   );
 }
 
+// Off-air pre-render of model-authored markup: a SEPARATE page — the CDP
+// screencast only captures the scene page, so this can never leak to the
+// broadcast (our analog of hyperframes' createPreviewAdapter). JS is disabled
+// and every network request aborted, matching the sandbox+CSP the scene will
+// impose; CSS animations still run, so the screenshot is a real frame of what
+// would air.
+let previewPage = null;
+async function renderPreview(html, w, h) {
+  if (!previewPage || previewPage.isClosed()) {
+    previewPage = await browser.newPage();
+    await previewPage.setJavaScriptEnabled(false);
+    await previewPage.setRequestInterception(true);
+    previewPage.on("request", (r) => (r.isNavigationRequest() ? r.continue() : r.abort()).catch(() => {}));
+  }
+  await previewPage.setViewport({ width: w, height: h });
+  await previewPage.setContent(
+    `<!doctype html><html><head><style>html,body{margin:0;width:${w}px;height:${h}px;overflow:hidden;background:#0b0820}</style></head><body>${html}</body></html>`,
+    { waitUntil: "load", timeout: 8000 }
+  );
+  await new Promise((r) => setTimeout(r, 700)); // let CSS animations reach a real frame
+  return previewPage.screenshot({ type: "png", clip: { x: 0, y: 0, width: w, height: h }, encoding: "base64" });
+}
+
 function buildControlApp() {
   const app = express();
-  app.use(express.json({ limit: "32kb" }));
+  app.use(express.json({ limit: "96kb" })); // takeover html can be larger than directives
   app.get("/favicon.ico", (_req, res) => res.status(204).end()); // keep the scene console clean
   app.use(express.static(SCENE_DIR));
 
@@ -122,6 +158,59 @@ function buildControlApp() {
 
   // list of valid actions, for tooling / sanity
   app.get("/actions", (_req, res) => res.json({ actions: [...ALLOWED_ACTIONS] }));
+
+  // Tier 1: the element manifest the director plans mutateElement calls against
+  app.get("/elements", async (_req, res) => {
+    try { res.json(await evalScene("getElements")); }
+    catch (e) { res.status(503).json({ ok: false, error: String(e.message) }); }
+  });
+
+  // --- Tier 2/3: model-authored markup — pre-rendered off-air, vision-gated ---
+  // The ONLY doors to the broadcast for generated HTML. Flow: validate →
+  // render in the off-air preview page → screenshot → vision safety check →
+  // only then hand to the scene's sandboxed iframe slot (with TTL).
+  const gate = async (req, res, kind) => {
+    try {
+      const html = String(req.body?.html || "");
+      const who = String(req.body?.who || "");
+      const source = String(req.body?.source || "operator"); // ingest sends "viewer"
+      const seconds = Number(req.body?.seconds) || undefined;
+      const max = kind === "card" ? 16384 : 65536;
+      if (!html.trim() || html.length > max) return res.status(400).json({ ok: false, error: `html required, <= ${max} bytes` });
+      // belt-and-braces: the iframe sandbox + CSP block all of these anyway
+      // (verified: an svg onload payload renders inert inside the sandbox)
+      if (/<\s*(script|iframe|object|embed|link|meta|base|form)\b|\bon[a-z]+\s*=|url\s*\(/i.test(html)) {
+        return res.status(400).json({ ok: false, error: "disallowed construct" });
+      }
+      if (source !== "operator" && !visionEnabled) {
+        return res.status(403).json({ ok: false, error: "viewer-sourced markup needs ANTHROPIC_API_KEY (vision gate)" });
+      }
+      if (kind === "takeover" && showState !== "onair") {
+        return res.status(409).json({ ok: false, error: `show is in '${showState}' — takeovers only while onair` });
+      }
+      const [w, h] = kind === "card" ? [360, 250] : [1280, 720];
+      const shot = await renderPreview(html, w, h);
+      if (visionEnabled) {
+        const v = await visionCheck(shot, kind === "card" ? `a ${w}x${h} viewer card` : "a full-stage takeover segment");
+        if (!v.safe) {
+          console.log(`[${kind}] REJECTED by vision gate (${v.reason}) — from ${who || source}`);
+          return res.status(422).json({ ok: false, error: `vision gate: ${v.reason}` });
+        }
+      }
+      const out = await evalScene(kind === "card" ? "showCard" : "takeover", { html, who, seconds });
+      console.log(`[${kind}] live (${html.length}b) from ${who || source}${visionEnabled ? " [vision-checked]" : " [operator, ungated]"}`);
+      res.json({ ok: true, kind, out });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message) });
+    }
+  };
+  app.post("/card", (req, res) => gate(req, res, "card"));
+  app.post("/takeover", (req, res) => gate(req, res, "takeover"));
+  // operator kill for everything model-authored (cards + takeover)
+  app.post("/cards/clear", async (_req, res) => {
+    try { res.json(await evalScene("clearCards")); }
+    catch (e) { res.status(503).json({ ok: false, error: String(e.message) }); }
+  });
 
   // --- music control plane: the ingest posts chat requests/likes here ---
   // queue a requested Suno share link (resolved + CDN-allowlisted by the DJ)

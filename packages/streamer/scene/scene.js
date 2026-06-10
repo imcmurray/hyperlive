@@ -713,8 +713,201 @@
     if (wrap) wrap.dataset.show = names.length ? "true" : "false";
   }
 
+  // ---- Tier 1: director-mutable elements (data-hf-id + vetted ops) ---------
+  // Upstream HyperFrames mints data-hf-id over every parsed element so tools
+  // and models can target nodes by stable identity (#1269–#1299). The live-
+  // broadcast translation is allowlist-FIRST: only elements registered here
+  // are mutable, each with its own clamps. The director gets a manifest of
+  // these (getElements), never a free DOM handle.
+  const MUTABLES = [
+    { role: "headline", sel: "#headline-inner", maxText: 90 },
+    { role: "kicker", sel: "#kicker", maxText: 40, upper: true },
+    { role: "subhead", sel: "#subhead", maxText: 160 },
+  ];
+  const TWEEN_CLAMPS = { x: [-200, 200], y: [-120, 120], scale: [0.5, 2], rotation: [-25, 25], opacity: [0.15, 1] };
+  const TWEEN_EASES = ["power2.out", "power2.inOut", "sine.inOut", "back.out", "elastic.out"];
+  const hfIndex = new Map(); // "hf-xxxx" AND role → registry entry
+  function ensureHfIds() {
+    for (const m of MUTABLES) {
+      const el = $(m.sel);
+      if (!el) continue;
+      // deterministic mint from the role (stable across restarts — a director's
+      // remembered ids stay valid), in upstream's hf- format
+      let h = 0;
+      for (const c of m.role) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+      let id = "hf-" + h.toString(36).slice(-4).padStart(4, "0");
+      while (hfIndex.has(id)) id += "x";
+      el.dataset.hfId = id;
+      const entry = { ...m, el, hfId: id };
+      hfIndex.set(id, entry);
+      hfIndex.set(m.role, entry); // the role is a friendlier alias
+    }
+  }
+
+  // ---- Tier 2/3: sandboxed model-authored markup ---------------------------
+  // Card/takeover html is MODEL-GENERATED and NEVER touches the stage DOM: it
+  // renders inside <iframe sandbox> (no allow-scripts, no allow-same-origin →
+  // opaque origin, nothing can script or escape) with CSP default-src 'none'
+  // (no network, no external images/fonts; inline CSS only). The streamer
+  // pre-renders + vision-checks BEFORE these methods are ever called.
+  const CARD_W = 360, CARD_H = 250, CARD_HTML_MAX = 16384;
+  let takeoverTimer = null;
+  function sandboxedFrame(html, w, h) {
+    const f = document.createElement("iframe");
+    f.setAttribute("sandbox", ""); // fully sandboxed
+    f.style.cssText = `width:${w}px;height:${h}px;border:0;display:block;background:transparent;`;
+    f.srcdoc = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;width:${w}px;height:${h}px;overflow:hidden;background:transparent}</style></head><body>${html}</body></html>`;
+    return f;
+  }
+
   // ---- the action table ---------------------------------------------------
   const SceneAPI = {
+    // Tier 1: the element manifest the director plans against
+    getElements() {
+      const out = [], seen = new Set();
+      for (const e of hfIndex.values()) {
+        if (seen.has(e.hfId)) continue;
+        seen.add(e.hfId);
+        out.push({
+          id: e.hfId, role: e.role, text: clean(e.el.textContent, 60),
+          ops: { setText: { maxLen: e.maxText }, tween: TWEEN_CLAMPS, reset: true },
+        });
+      }
+      return { elements: out, eases: TWEEN_EASES, maxOpsPerCall: 4 };
+    },
+
+    // Tier 1: vetted, clamped ops against ONE registered element
+    mutateElement(p = {}) {
+      const entry = hfIndex.get(String(p.id || ""));
+      if (!entry) return { ok: false, error: "unknown element — see getElements" };
+      const el = entry.el;
+      const ops = (Array.isArray(p.ops) ? p.ops : []).slice(0, 4);
+      const applied = [];
+      for (const op of ops) {
+        const kind = String(op?.op || "");
+        if (kind === "setText") {
+          let text = clean(op.text, entry.maxText);
+          if (!text) continue;
+          if (entry.upper) text = text.toUpperCase();
+          if (gsap) {
+            gsap.killTweensOf(el, "opacity"); // preserve transform + gradient tweens
+            const tl = gsap.timeline();
+            tl.to(el, { opacity: 0, duration: 0.3, ease: "power2.in" });
+            tl.add(() => { el.textContent = text; });
+            tl.to(el, { opacity: 1, duration: 0.45, ease: "power2.out" });
+          } else el.textContent = text;
+          applied.push({ op: "setText", text });
+        } else if (kind === "tween" && gsap) {
+          const t = {
+            duration: clampNum(op.duration, 0.2, 4, 1),
+            ease: TWEEN_EASES.includes(op.ease) ? op.ease : "power2.inOut",
+            overwrite: "auto",
+          };
+          for (const [prop, [lo, hi]] of Object.entries(TWEEN_CLAMPS)) {
+            const v = Number(op[prop]);
+            if (Number.isFinite(v)) t[prop] = Math.max(lo, Math.min(hi, v));
+          }
+          const rep = Math.round(clampNum(op.repeat, 0, 3, 0));
+          if (rep) { t.repeat = rep; t.yoyo = op.yoyo !== false; }
+          gsap.to(el, t);
+          applied.push({ op: "tween" });
+        } else if (kind === "reset") {
+          if (gsap) {
+            gsap.killTweensOf(el, "x,y,scale,rotation,opacity");
+            gsap.to(el, { x: 0, y: 0, scale: 1, rotation: 0, duration: 0.5, ease: "power2.inOut",
+              onComplete: () => gsap.set(el, { clearProps: "transform,opacity" }) });
+          }
+          applied.push({ op: "reset" });
+        }
+      }
+      return applied.length
+        ? { ok: true, id: entry.hfId, role: entry.role, applied }
+        : { ok: false, error: "no valid ops" };
+    },
+
+    // Tier 2: show a (pre-vetted) viewer card in the sandboxed slot
+    showCard(p = {}) {
+      const html = String(p.html || "");
+      if (!html.trim() || html.length > CARD_HTML_MAX) return { ok: false, error: "html missing or too large" };
+      const slot = $("#card-slot");
+      if (!slot) return { ok: false, error: "no card slot" };
+      const ttl = clampNum(p.seconds, 4, 120, 20);
+      slot.replaceChildren(); // one card at a time
+      const wrap = document.createElement("div");
+      wrap.className = "viewer-card";
+      const label = document.createElement("div");
+      label.className = "viewer-card-label";
+      label.textContent = p.who ? `✦ card by ${clean(p.who, 24)}` : "✦ viewer card";
+      wrap.appendChild(label);
+      const frame = sandboxedFrame(html, CARD_W, CARD_H);
+      wrap.appendChild(frame);
+      slot.appendChild(wrap);
+      if (gsap) {
+        // sandboxed srcdoc iframes are out-of-process and paint lazily — start
+        // the entrance only once the subdocument has loaded, or the card fades
+        // in over blank pixels
+        gsap.set(wrap, { opacity: 0, x: 46, scale: 0.92 });
+        let revealed = false;
+        const reveal = () => {
+          if (revealed) return;
+          revealed = true;
+          gsap.to(wrap, { opacity: 1, x: 0, scale: 1, duration: 0.7, ease: "back.out(1.4)" });
+        };
+        frame.addEventListener("load", reveal, { once: true });
+        gsap.delayedCall(1.5, reveal); // fallback if load never fires
+        gsap.delayedCall(ttl, () => {
+          gsap.to(wrap, { opacity: 0, x: 46, duration: 0.6, ease: "power2.in", onComplete: () => wrap.remove() });
+        });
+      }
+      return { ok: true, seconds: ttl };
+    },
+
+    // operator kill for everything model-authored
+    clearCards() {
+      const s = $("#card-slot");
+      if (s) s.replaceChildren();
+      SceneAPI.endTakeover();
+      return { ok: true };
+    },
+
+    // Tier 3: full-stage sandboxed takeover with a hard TTL
+    takeover(p = {}) {
+      const html = String(p.html || "");
+      if (!html.trim() || html.length > CARD_HTML_MAX * 4) return { ok: false, error: "html missing or too large" };
+      const host = $("#takeover");
+      if (!host) return { ok: false, error: "no takeover layer" };
+      const secs = clampNum(p.seconds, 5, 90, 20);
+      const frame = sandboxedFrame(html, 1280, 720);
+      host.replaceChildren(frame);
+      host.dataset.show = "true";
+      if (takeoverTimer) { takeoverTimer.kill(); takeoverTimer = null; }
+      if (gsap) {
+        // HARD CUT on load (TV-style). An animated opacity fade composites
+        // sluggishly over the out-of-process sandboxed frame on the iGPU —
+        // the cut both looks better for a takeover and sidesteps that.
+        gsap.set(host, { opacity: 0 });
+        let revealed = false;
+        const reveal = () => {
+          if (revealed) return;
+          revealed = true;
+          gsap.set(host, { opacity: 1 });
+        };
+        frame.addEventListener("load", reveal, { once: true });
+        gsap.delayedCall(1.5, reveal); // fallback if load never fires
+        takeoverTimer = gsap.delayedCall(secs, () => SceneAPI.endTakeover());
+      }
+      return { ok: true, seconds: secs };
+    },
+
+    endTakeover() {
+      const host = $("#takeover");
+      if (!host || host.dataset.show !== "true") return { ok: true, active: false };
+      if (takeoverTimer) { takeoverTimer.kill(); takeoverTimer = null; }
+      const done = () => { host.dataset.show = "false"; host.replaceChildren(); host.style.opacity = ""; };
+      if (gsap) gsap.to(host, { opacity: 0, duration: 0.6, ease: "power2.in", onComplete: done });
+      else done();
+      return { ok: true, active: true };
+    },
     // smooth by default now (back-compatible with existing setTheme callers)
     setTheme(p = {}) {
       const theme = THEMES.includes(p.theme) ? p.theme : "synthwave";
@@ -1211,6 +1404,7 @@
     particles.ctx = particles.canvas && particles.canvas.getContext("2d");
     rain.canvas = $("#fx-datarain");
     rain.ctx = rain.canvas && rain.canvas.getContext("2d");
+    ensureHfIds();
     buildDecor();
     retint();
     startAmbient();

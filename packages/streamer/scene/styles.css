@@ -409,6 +409,26 @@ body.has-cover .bg-base { opacity: 0.45; }
 .tcard-dot.on { background: var(--c3); box-shadow: 0 0 6px var(--c3); }
 
 /* ===================== cinematic overlays (default on) =================== */
+/* Tier 2: sandboxed viewer-card slot (lower right, above ticker, below grain) */
+#card-slot { position: absolute; right: 48px; bottom: 210px; z-index: 5; pointer-events: none; }
+.viewer-card {
+  width: 362px; border-radius: 14px; overflow: hidden;
+  background: rgba(10, 8, 26, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+.viewer-card-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--c2, #9ae6ff); padding: 7px 12px 5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.viewer-card iframe { display: block; }
+
+/* Tier 3: full-stage takeover — above the show content, UNDER the film-grain
+   overlays (7) and standby screens (11+), so standby/outro always win */
+#takeover { position: absolute; inset: 0; z-index: 6; pointer-events: none; display: none; background: #05030f; }
+#takeover[data-show="true"] { display: block; }
+
 #overlays { position: absolute; inset: 0; z-index: 7; pointer-events: none; }
 .ovl { position: absolute; inset: 0; }
 .ovl.is-off { display: none; }

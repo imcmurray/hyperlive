@@ -163,6 +163,11 @@ Recommendation: **fork now, treat `hyperlive` as upstream, keep the pack thin** 
 and *if* a third direction gets real, that's the signal to graduate to the
 `core/ + packs/` monorepo. Don't pay the monorepo refactor cost for one product.
 
+> **Status (2026-06-10): done.** `SunoLiveStream` is forked and running with this
+> repo as its hyperlive base. The Suno experience evolves THERE; this repo is now
+> the **platform upstream** — core hardening, HyperFrames-native experiments
+> (see §7), and anything content-agnostic. Core fixes flow downstream via merge.
+
 **Watch-items as it diverges**
 - Keep `streamer/` (capture/encode) and the `ingest/` core (poll/moderate/probe/
   quota) identical to upstream — those are pure platform; resist Suno-specific
@@ -173,7 +178,59 @@ and *if* a third direction gets real, that's the signal to graduate to the
 
 ---
 
-## 6. Operational truths we paid for (carry into every direction)
+## 7. Comment-alters-the-stage: the three-tier mutation ladder
+
+The next platform experiment: let a viewer comment change the stage itself, not
+just pick from preset actions. Upstream HyperFrames just built the key
+infrastructure for their editor (stable `data-hf-id` element identity,
+#1269–#1299); this is its live-broadcast translation. Each tier widens what the
+model may do — ship in order, because each tier's safety story builds on the
+last. The invariant from §1 NEVER changes: *the outside world supplies arguments
+to vetted operations* — the tiers just shrink the granularity of "operation."
+
+**Tier 1 — element mutation (`mutateElement`).**
+Mint `data-hf-id` over the stage at boot; expose a manifest
+(`GET /elements` → `{id, role, mutableProps}`) so the director knows what
+exists and what it may touch; one new directive
+`{action:"mutateElement", params:{id, ops:[…]}}` with a vetted op vocabulary:
+set text (through `clean()`), toggle allowlisted classes, clamped
+transform/opacity tweens. "Make the headline huge and tilt it" becomes real.
+Same safety posture as today, finer grain. Merges downstream usefully —
+SunoLiveStream inherits a richer director.
+
+**Tier 2 — sandboxed viewer cards.**
+A comment describes a visual; Claude authors actual HTML+CSS for it — the
+HyperFrames "Write HTML" model, live. Containment, in order of importance:
+1. **iframe sandbox** — the card renders in `<iframe sandbox>` (NO
+   `allow-scripts`, NO `allow-same-origin`) in a fixed-size slot; CSS
+   animations only. It cannot script, fetch, or escape into the stage.
+2. **CSP `default-src 'none'`** baked into the srcdoc — no network, no
+   external images/fonts; inline styles only.
+3. **Pre-render gate** — render hidden → screenshot the slot → vision safety
+   check (text moderation can't catch "a slur drawn out of div borders"; a
+   screenshot check can) → only then reveal, with a TTL.
+4. **Operator kill** — cards die with `setStandby` / a clear-cards call.
+No `ANTHROPIC_API_KEY` in the streamer → viewer-sourced cards are refused
+(operator-only via the loopback control API still works).
+
+**Tier 3 — segment takeovers.**
+The same machinery at full-stage scale: a fullscreen sandboxed composition
+with a hard TTL, show-phase aware (never fights standby/outro). Super-Chat
+large tier already reserves this slot; eventually pre-rendered HyperFrames
+clips splice in here too (§3D).
+
+**Honest risks** (why the gates above are all mandatory, not menu items):
+tier 2 is the first time model-generated *markup* reaches the broadcast, so
+chat prompt-injection graduates from "annoying directive" to
+"attacker-influenced visuals." The sandbox bounds the blast radius to one
+slot's pixels; the vision gate bounds what those pixels can show; the TTL
+bounds for how long; the operator kill bounds everything else. Also: iframe
+compositing has a capture cost — confirm screencast fps holds on the iGPU
+with an animating card in frame before building on top.
+
+---
+
+## 8. Operational truths we paid for (carry into every direction)
 
 - **Post in the live-chat panel, not the video's comments** — only live chat
   feeds the API. (And viewer links need moderator/verified status.)

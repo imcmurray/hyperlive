@@ -13,6 +13,7 @@ import { createMoodEngine } from "./mood.js";
 import { createReactions } from "./reactions.js";
 import { createVotes } from "./votes.js";
 import { createMusic, parseSunoShare, isLikeCommand, hasHeart } from "./music.js";
+import { authorCard, parseCardCommand } from "./card-author.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
 import { youtubeSource } from "./youtube.js";
 import { createStreamLikes } from "./stream-likes.js";
@@ -51,6 +52,8 @@ async function postMutate(directive) {
 
 // throttled "typed → on-scene" latency readout (excludes YouTube's broadcast buffer)
 let lastDelayAt = 0;
+// one viewer card at a time, with a global cooldown (the slot shows one card)
+let lastCardAt = 0;
 function reportDelay(comment) {
   if (!config.showDelay || !comment.ts) return;
   const now = Date.now();
@@ -96,6 +99,39 @@ async function handle(comment) {
       return;
     }
     if (hasHeart(comment.text)) music.like(comment.author).catch(() => {}); // side-effect, fall through
+  }
+
+  // Tier 2 viewer cards: "!card <description>" is CONSUMED — Claude authors a
+  // small HTML card, the streamer pre-renders + vision-gates it, and only then
+  // does it reach the sandboxed on-stage slot (platform-directions §7).
+  if (config.cards) {
+    const want = parseCardCommand(comment.text);
+    if (want) {
+      const now = Date.now();
+      if (now - lastCardAt < config.cardCooldownMs) {
+        console.log(`  ▦ card  (cooldown ${Math.ceil((config.cardCooldownMs - (now - lastCardAt)) / 1000)}s) ${comment.author}`);
+        await audit({ stage: "card_cooldown", comment });
+        return;
+      }
+      lastCardAt = now;
+      console.log(`  ▦ card  ${comment.author} → "${want}" (authoring…)`);
+      const html = await authorCard(want, comment.author);
+      let result = { ok: false, error: "authoring failed" };
+      if (html) {
+        try {
+          const res = await fetch(config.cardUrl, {
+            method: "POST",
+            signal: AbortSignal.timeout(30000), // preview render + vision check take a while
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ html, who: comment.author, source: "viewer" }),
+          });
+          result = await res.json().catch(() => ({ ok: res.ok }));
+        } catch (e) { result = { ok: false, error: e.message }; }
+      }
+      console.log(result.ok ? `  ▦ card  LIVE ← ${comment.author}` : `  ▦ card  rejected [${result.error || "?"}]`);
+      await audit({ stage: "card", comment, request: want, ok: !!result.ok, error: result.error });
+      return;
+    }
   }
 
   // Vote ballots ("!theme:x") are CONSUMED here — they drive a vote round and

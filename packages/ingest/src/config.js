@@ -43,6 +43,14 @@ export const config = {
   // streamer music control plane — same host as /mutate, under /music
   musicUrl: (process.env.MUSIC_URL || (process.env.MUTATE_URL || "http://localhost:8080/mutate").replace(/\/mutate\/?$/, "/music")),
 
+  // --- Tier 2 viewer cards: "!card <description>" → Claude authors HTML →
+  // the streamer's vision gate decides. Needs ANTHROPIC_API_KEY twice over
+  // (authoring here, vision gate in the streamer container) — so default to
+  // on only when a key is present.
+  cards: (process.env.CARDS || (process.env.ANTHROPIC_API_KEY ? "on" : "off")).toLowerCase() !== "off",
+  cardUrl: (process.env.CARD_URL || (process.env.MUTATE_URL || "http://localhost:8080/mutate").replace(/\/mutate\/?$/, "/card")),
+  cardCooldownMs: num(process.env.CARD_COOLDOWN_MS, 60000), // min gap between viewer cards
+
   // --- Fun Layer: instant emoji reactions + first-time welcome ---
   reactions: (process.env.REACTIONS || "on").toLowerCase() !== "off",
   // on-screen "typed → on-scene" latency readout

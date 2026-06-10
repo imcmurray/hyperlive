@@ -22,8 +22,14 @@ export const EFFECTS = [
 ];
 const ACTIONS = [
   "setTheme", "transitionTheme", "setHeadline", "setKicker", "setSubhead", "setHeadlineGradient",
-  "addShoutout", "burst", "setEffect", "setTicker", "renderWarning", "ignore",
+  "addShoutout", "burst", "setEffect", "setTicker", "renderWarning", "mutateElement", "ignore",
 ];
+
+// Tier 1 element mutation: ids + clamps mirror the scene's registry (scene.js
+// MUTABLES/TWEEN_CLAMPS — the scene re-clamps everything, this is defense in depth)
+const MUTABLE_IDS = ["headline", "kicker", "subhead"];
+const TWEEN_LIMITS = { x: [-200, 200], y: [-120, 120], scale: [0.5, 2], rotation: [-25, 25], opacity: [0.15, 1], duration: [0.2, 4], repeat: [0, 3] };
+const TWEEN_EASES = ["power2.out", "power2.inOut", "sine.inOut", "back.out", "elastic.out"];
 
 // The action schema, described once. Cached on the API side (see system block).
 const SYSTEM = `You are the live "director" of an interactive YouTube stream. Each viewer
@@ -42,6 +48,10 @@ Available actions and params:
 - burst           { "intensity": 0.0-1.0 }                                // a quick light flash + shockwave for hype moments
 - setEffect       { "effect": <one of EFFECTS>, "on": true|false }        // toggle an ambient effect
 - setTicker       { "items": ["<=60 chars", ...up to 8] }                 // rewrite the scrolling bottom ticker
+- mutateElement   { "id": "headline"|"kicker"|"subhead", "ops": [ up to 4 of:
+                    {"op":"setText","text":"..."} |
+                    {"op":"tween","x":-200..200,"y":-120..120,"scale":0.5..2,"rotation":-25..25,"opacity":0.15..1,"duration":0.2..4,"repeat":0..3,"yoyo":true,"ease":"power2.out"|"power2.inOut"|"sine.inOut"|"back.out"|"elastic.out"} |
+                    {"op":"reset"} ] }                                    // fine-grained: move/spin/scale/fade a SPECIFIC on-stage element ("tilt the headline", "shrink the kicker", "wiggle it") — use reset to put it back
 - ignore          {}                                                      // off-topic, unclear, or low-value
 
 THEMES: synthwave sunrise mono forest aurora ember midnight vapor matrix gold crimson neon dusk ocean lava frost glitch retro void plasma noir solar holo
@@ -115,6 +125,30 @@ export function validateDirective(d) {
     case "burst": {
       const intensity = Math.max(0, Math.min(1, Number(p.intensity)));
       return Number.isFinite(intensity) ? { action, params: { intensity: intensity || 0.6 } } : null;
+    }
+    case "mutateElement": {
+      const id = String(p.id || "");
+      if (!MUTABLE_IDS.includes(id) && !/^hf-[a-z0-9]{4,8}x{0,4}$/.test(id)) return null;
+      const ops = (Array.isArray(p.ops) ? p.ops : []).slice(0, 4).map((o) => {
+        const kind = String(o?.op || "");
+        if (kind === "reset") return { op: "reset" };
+        if (kind === "setText") {
+          const text = clampText(o.text, 160);
+          return text ? { op: "setText", text } : null;
+        }
+        if (kind === "tween") {
+          const t = { op: "tween" };
+          for (const [k, [lo, hi]] of Object.entries(TWEEN_LIMITS)) {
+            const v = Number(o[k]);
+            if (Number.isFinite(v)) t[k] = Math.max(lo, Math.min(hi, v));
+          }
+          if (TWEEN_EASES.includes(o.ease)) t.ease = o.ease;
+          if (o.yoyo !== undefined) t.yoyo = !!o.yoyo;
+          return Object.keys(t).length > 1 ? t : null;
+        }
+        return null;
+      }).filter(Boolean);
+      return ops.length ? { action, params: { id, ops } } : null;
     }
     default:
       return null;
