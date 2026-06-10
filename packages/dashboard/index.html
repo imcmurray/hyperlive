@@ -203,6 +203,22 @@
   .scamt { color: #ffd34d; font-weight: 700; margin-right: 8px; white-space: nowrap; }
   .c-sc { color: #ffd34d; border-color: #6b5410; background: #241a04; }
 
+  /* callout tray: superchats pinned until the host thanks them on air */
+  #sc-tray {
+    flex: none; max-height: 168px; overflow-y: auto;
+    background: rgba(36, 26, 4, 0.4);
+    border-bottom: 1px solid #6b5410;
+  }
+  #sc-tray:empty { display: none; }
+  #sc-tray .row { border-bottom: 1px solid rgba(107, 84, 16, 0.35); animation: none; }
+  @keyframes scpulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 211, 77, 0); }
+    50% { box-shadow: 0 0 10px 2px rgba(255, 211, 77, 0.55); }
+  }
+  .chip.c-sc.awaiting { cursor: pointer; animation: scpulse 1.5s infinite; }
+  .chip.c-sc.awaiting:hover { background: #3a2c06; }
+  .chip.c-sc.awaiting:hover::after { content: " 🎙"; }
+
   /* automations view */
   .arow {
     display: grid; grid-template-columns: 1fr 170px 44px 90px; gap: 12px;
@@ -369,6 +385,7 @@
       <input id="fsearch" placeholder="filter author / text…" autocomplete="off">
       <button id="fpause">⏸ PAUSE</button>
     </div>
+    <div id="sc-tray" title="superchats awaiting an on-air callout — click the pulsing ★ once you've thanked them with your voice"></div>
     <div class="scroll" id="feedwrap"><div id="feed"></div></div>
     <div class="scroll" id="userswrap" style="display:none">
       <div id="users-list"></div>
@@ -417,7 +434,7 @@
     error: ["c-blocked", "ERROR"], card_cooldown: ["c-skipped", "cooldn"], approve_failed: ["c-blocked", "AIRFAIL"],
     muted: ["c-held", "MUTED"], muted_by_mod: ["c-mod", "MOD MUTE"], unmuted: ["c-mod", "UNMUTE"],
     show_control: ["c-mod", "SHOW"], music_control: ["c-mod", "MUSIC"],
-    superchat: ["c-sc", "★ SUPER"], automation: ["c-mod", "AUTO"],
+    superchat: ["c-sc", "★ SUPER"], automation: ["c-mod", "AUTO"], sc_ack: ["c-sc", "CALLED OUT"],
   };
 
   // ---- live feed: client-side event store + filters + pause ----
@@ -437,8 +454,10 @@
   // pipeline follow-ups (applied / skipped / music_request…) fold into that
   // row's detail instead of appearing as second lines.
   let scIds = new Set();
+  let awaiting = new Map(); // cid → superchat event pinned in the callout tray
   function passes(e) {
     if (e.stage !== "superchat" && e.comment?.id && scIds.has(e.comment.id)) return false;
+    if (e.stage === "superchat" && awaiting.has(e.comment?.id)) return false; // lives in the tray, not the flow
     // the 💰 chip also matches any row whose comment carried money
     if (filter === "sc") {
       if (!(e.stage === "superchat" || e.comment?.superchat)) return false;
@@ -494,6 +513,32 @@
     feed.replaceChildren(...events.filter(passes).slice(-300).map(buildRow));
     feedwrap.scrollTop = feedwrap.scrollHeight;
   }
+  // ---- callout tray: superchats pinned until the host thanks them on air ----
+  const tray = $("#sc-tray");
+  function renderTray() {
+    tray.replaceChildren(...[...awaiting.values()].map((e) => {
+      const r = buildRow(e);
+      r.querySelector(".banbox")?.remove(); // you're thanking them, not banning them
+      const chip = r.querySelector(".chip");
+      chip.classList.add("awaiting");
+      chip.title = "click once you've called them out on stream 🎙";
+      return r;
+    }));
+  }
+  tray.addEventListener("click", async (ev) => {
+    const chip = ev.target.closest(".chip.c-sc.awaiting");
+    if (!chip) return;
+    const cid = chip.closest(".row")?.dataset.cid;
+    const e = awaiting.get(cid);
+    if (!cid || !e) return;
+    const r = await api("/admin/superchats/ack", { id: cid });
+    if (!r.ok) return toast(`ack failed: ${r.error || "?"}`);
+    awaiting.delete(cid);
+    renderTray();
+    if (passes(e)) appendRow(e); // drops into the normal flow — gold, no pulse
+    toast(`called out ✓ ${e.comment?.author || ""}`);
+  });
+
   // live-update a superchat row when a folded follow-up arrives
   function updateScRow(e) {
     const row = feed.querySelector(`.row[data-cid="${CSS.escape(e.comment.id)}"]`);
@@ -529,6 +574,9 @@
         if (e.stage === "superchat" && cid) {
           scIds.add(cid);
           if (scIds.size > 600) scIds = new Set(events.filter((x) => x.stage === "superchat" && x.comment?.id).map((x) => x.comment.id));
+          awaiting.set(cid, e); // pin in the callout tray until the host acks
+          renderTray();         // (tray updates even while the feed is paused)
+          return;
         } else if (cid && scIds.has(cid)) {
           if (!paused && !hoverPause && !menuLock) updateScRow(e);
           return;
@@ -539,7 +587,7 @@
       } catch {}
     };
     es.onerror = () => { es.close(); $("#led-ingest").className = "led bad"; setTimeout(connect, 3000); };
-    es.onopen = () => { $("#led-ingest").className = "led on"; };
+    es.onopen = () => { $("#led-ingest").className = "led on"; refresh(); }; // re-sync the tray right after ring replay
   }
   connect();
 
@@ -571,7 +619,7 @@
   // missed events flow back in the moment the freeze lifts
   let hoverPause = false, menuLock = false, missedWhileHover = false;
   let openMenu = null; // { box, who, cid }
-  const HOVER_SEL = ".chip.replayable, .banbox";
+  const HOVER_SEL = ".chip.replayable, .banbox, .chip.c-sc"; // (feed-scoped — the pinned tray never scrolls, so it needs no freeze)
   const flushMissed = () => { if (missedWhileHover && !paused) { missedWhileHover = false; rebuildFeed(); } };
   const unfreeze = () => { hoverPause = false; if (!menuLock) flushMissed(); };
   const closeMenu = (applied) => {
@@ -650,7 +698,10 @@
     const v = st.vitals || {};
     const quota = v.source === "youtube" ? ` · YT <b>${v.quotaUnits || 0}</b>/${v.quotaLimit || "?"}u` : "";
     $("#vitals-bar").innerHTML = `<b>${v.processed || 0}</b> in · <b>${v.applied || 0}</b> applied · <b>${v.blocked || 0}</b> blocked${quota}`;
-    const pn = (st.pending || []).length;
+    // authoritative callout tray (survives reloads; shared between mods)
+    awaiting = new Map((st.scAwait || []).filter((e) => e.comment?.id).map((e) => [e.comment.id, e]));
+    renderTray();
+    const pn = (st.pending || []).length + awaiting.size;
     document.title = (pn ? `(${pn}) ` : "") + "HYPERLIVE · MOD CONSOLE";
 
     const bans = $("#bans");

@@ -38,10 +38,19 @@ const ring = [];
 const sseClients = new Set();
 let seq = 0;
 
+// superchats awaiting an ON-AIR CALLOUT: pinned in the dashboard until the
+// host clicks the ★ ("I've thanked them with my voice"). Server-side so the
+// queue survives dashboard reloads and is shared between mods.
+const scAwait = new Map(); // comment.id → superchat event
+
 export function publishFeed(entry) {
   const evt = { seq: ++seq, t: entry.t || new Date().toISOString(), ...entry };
   ring.push(evt);
   if (ring.length > RING_MAX) ring.shift();
+  if (evt.stage === "superchat" && evt.comment?.id) {
+    scAwait.set(evt.comment.id, evt);
+    while (scAwait.size > 50) scAwait.delete(scAwait.keys().next().value);
+  }
   trackUser(evt);
   const line = `data: ${JSON.stringify(evt)}\n\n`;
   for (const res of sseClients) {
@@ -176,7 +185,18 @@ export function startAdmin({ log = console.log } = {}) {
           health, music, queue,
           holdCards: config.holdCards,
           vitals: vitalsProvider(),
+          scAwait: [...scAwait.values()],
         });
+      }
+
+      // host clicked the ★ — this superchat has been called out on stream
+      if (route === "POST /admin/superchats/ack") {
+        const b = await readJson(req);
+        const evt = scAwait.get(String(b.id || ""));
+        if (!evt) return json(res, 404, { ok: false, error: "not awaiting a callout" });
+        scAwait.delete(String(b.id));
+        publishFeed({ stage: "sc_ack", comment: { ...evt.comment } });
+        return json(res, 200, { ok: true });
       }
 
       // live MJPEG monitor / off-air preview twin: stream frames through (the
