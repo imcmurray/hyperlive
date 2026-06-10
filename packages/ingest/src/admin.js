@@ -18,7 +18,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
-import { ban, unban, listBans } from "./bans.js";
+import { ban, unban, mute, unmute, listBans, listMutes, isBanned, isMuted } from "./bans.js";
+import { listAutomations, setAutomation } from "./automations.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DASH_HTML = path.resolve(__dirname, "../../dashboard/index.html");
@@ -41,11 +42,51 @@ export function publishFeed(entry) {
   const evt = { seq: ++seq, t: entry.t || new Date().toISOString(), ...entry };
   ring.push(evt);
   if (ring.length > RING_MAX) ring.shift();
+  trackUser(evt);
   const line = `data: ${JSON.stringify(evt)}\n\n`;
   for (const res of sseClients) {
     try { res.write(line); } catch { sseClients.delete(res); }
   }
 }
+
+// ---- per-user aggregates: who interacted, what they did (session-scoped) ----
+// Only comment-driven stages count — operator/mod events don't create "users".
+const USER_STAGES = new Set([
+  "applied", "blocked", "banned", "muted", "skipped", "held", "card_held",
+  "card", "card_cooldown", "music_request", "music_like", "vote", "error", "superchat",
+]);
+const USERS_MAX = 500, USER_EVENTS_MAX = 50;
+const users = new Map(); // author(lower) → profile
+
+function trackUser(evt) {
+  const c = evt.comment;
+  if (!c?.author || !USER_STAGES.has(evt.stage)) return;
+  const k = c.author.toLowerCase();
+  let u = users.get(k);
+  if (!u) {
+    u = { author: c.author, channelId: "", avatar: "", first: evt.t, msgs: 0, stages: {}, superchats: 0, events: [] };
+    users.set(k, u);
+  }
+  if (c.channelId) u.channelId = c.channelId;
+  if (c.avatar) u.avatar = c.avatar;
+  if (evt.stage === "superchat") u.superchats++; // counted once per paid message (the recognition event)
+  u.last = evt.t;
+  u.msgs++;
+  u.stages[evt.stage] = (u.stages[evt.stage] || 0) + 1;
+  u.events.push(evt);
+  if (u.events.length > USER_EVENTS_MAX) u.events.shift();
+  if (users.size > USERS_MAX) { // evict the least-recently-seen
+    let oldestK = null, oldestT = "";
+    for (const [kk, uu] of users) if (!oldestK || uu.last < oldestT) { oldestK = kk; oldestT = uu.last; }
+    users.delete(oldestK);
+  }
+}
+
+const userSummary = (u) => ({
+  author: u.author, channelId: u.channelId, avatar: u.avatar,
+  first: u.first, last: u.last, msgs: u.msgs, stages: u.stages, superchats: u.superchats,
+  banned: isBanned(u), muted: isMuted(u),
+});
 
 // ---- hold-for-review queue --------------------------------------------------
 const pending = new Map(); // id → { id, kind, who, request, html, screenshot, vision, ts }
@@ -211,12 +252,42 @@ export function startAdmin({ log = console.log } = {}) {
         const action = String(b.action || "ban");
         // durationMinutes: 0/absent = permanent, else a timeout
         const durationMs = Math.max(0, Number(b.durationMinutes) || 0) * 60000;
-        const out = action === "unban"
-          ? await unban({ channelId: b.channelId, author: b.author })
-          : await ban({ channelId: b.channelId, author: b.author, by: "dashboard", durationMs });
+        const who = { channelId: b.channelId, author: b.author };
+        const ops = {
+          ban: () => ban({ ...who, by: "dashboard", durationMs }),
+          unban: () => unban(who),
+          mute: () => mute({ ...who, by: "dashboard", durationMs }),
+          unmute: () => unmute(who),
+        };
+        if (!ops[action]) return json(res, 400, { ok: false, error: "action must be ban|unban|mute|unmute" });
+        const out = await ops[action]();
+        const FEED_STAGE = { ban: "banned_by_mod", unban: "unbanned", mute: "muted_by_mod", unmute: "unmuted" };
         const label = durationMs ? `timeout ${Math.round(durationMs / 60000)}m` : "";
-        publishFeed({ stage: action === "unban" ? "unbanned" : "banned_by_mod", comment: { author: b.author || b.channelId, text: label } });
+        publishFeed({ stage: FEED_STAGE[action], comment: { author: b.author || b.channelId, text: label } });
         return json(res, out.ok ? 200 : 400, out);
+      }
+
+      // ---- automations: event → pre-built animation bindings ----
+      if (route === "GET /admin/automations") {
+        return json(res, 200, { ok: true, automations: listAutomations() });
+      }
+      if (route === "POST /admin/automations") {
+        const b = await readJson(req);
+        const out = await setAutomation(String(b.key || ""), { enabled: b.enabled, style: b.style });
+        if (out.ok) publishFeed({ stage: "automation", comment: { author: "operator", text: `${b.key}: ${out.enabled ? "on" : "off"}${out.style ? " · " + out.style : ""}` } });
+        return json(res, out.ok ? 200 : 400, out);
+      }
+
+      // ---- user directory: everyone who has interacted this session ----
+      if (route === "GET /admin/users") {
+        const list = [...users.values()].map(userSummary)
+          .sort((a, b) => (b.last || "").localeCompare(a.last || ""));
+        return json(res, 200, { ok: true, users: list, mutes: listMutes() });
+      }
+      if (route === "GET /admin/user") {
+        const u = users.get(String(url.searchParams.get("author") || "").toLowerCase());
+        if (!u) return json(res, 404, { ok: false, error: "unknown user (session-scoped — restarts clear the directory)" });
+        return json(res, 200, { ok: true, user: { ...userSummary(u), events: u.events } });
       }
 
       if (req.method === "POST" && /^\/admin\/pending\/[\w-]+$/.test(url.pathname)) {

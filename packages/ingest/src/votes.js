@@ -6,6 +6,7 @@
 // label map, so a ballot can't inject arbitrary text onto the stream.
 
 import { config } from "./config.js";
+import { automation } from "./automations.js";
 
 // must stay in sync with the scene's THEMES (packages/streamer/scene/scene.js)
 const THEMES = [
@@ -117,7 +118,11 @@ export function createVotes({ postMutate, log = () => {} }) {
     postMutate({ action: "voteEnd", params: { winner: winner.key, winnerLabel: winner.label, votes: winner.votes, options: opts } })
       .catch(() => {});
     // apply the theme AFTER the countdown hits zero + a clear "wins!" beat
-    setTimeout(() => postMutate({ action: "transitionTheme", params: { theme: winner.key, duration: 2.5 } }).catch(() => {}), 1500);
+    // (the voteWin automation can disable applying — round + announcement
+    // still run, the crossfade just doesn't fire)
+    if (automation("voteWin").enabled) {
+      setTimeout(() => postMutate({ action: "transitionTheme", params: { theme: winner.key, duration: 2.5 } }).catch(() => {}), 1500);
+    }
   }
 
   function cast(author, theme) {

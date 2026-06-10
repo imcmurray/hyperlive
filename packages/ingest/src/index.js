@@ -14,7 +14,8 @@ import { createReactions } from "./reactions.js";
 import { createVotes } from "./votes.js";
 import { createMusic, parseSunoShare, isLikeCommand, hasHeart } from "./music.js";
 import { authorCard, parseCardCommand } from "./card-author.js";
-import { isBanned, loadBans } from "./bans.js";
+import { isBanned, isMuted, loadBans } from "./bans.js";
+import { automation, loadAutomations } from "./automations.js";
 import { startAdmin, publishFeed, enqueuePending, previewMarkup, setVitalsProvider, setReplayHandler } from "./admin.js";
 import { unitsSpent } from "./quota.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
@@ -24,7 +25,7 @@ import { createStreamLikes } from "./stream-likes.js";
 const moderator = createModerator();
 const director = createDirector();
 const moodState = createMoodState({ windowMs: config.moodWindowMs });
-const reactions = createReactions({ postMutate, log: console.log });
+const reactions = createReactions({ postMutate, log: console.log, welcome: () => automation("welcome") });
 const votes = createVotes({ postMutate, log: console.log });
 const music = createMusic({ baseUrl: config.musicUrl });
 
@@ -56,6 +57,17 @@ async function postMutate(directive) {
   return res.json();
 }
 
+// superchat → recognition tier: explicit tier strings (simulator) or
+// amount/ytTier (real YouTube)
+function superchatTier(sc) {
+  if (sc.tier === "large" || sc.tier === "medium") return sc.tier;
+  const amt = parseFloat(String(sc.amount || "").replace(/[^0-9.]/g, "")) || 0;
+  const yt = Number(sc.ytTier) || 0;
+  if (amt >= 20 || yt >= 5) return "large";
+  if (amt >= 5 || yt >= 3) return "medium";
+  return "small";
+}
+
 // throttled "typed → on-scene" latency readout (excludes YouTube's broadcast buffer)
 let lastDelayAt = 0;
 // one viewer card at a time, with a global cooldown (the slot shows one card)
@@ -78,6 +90,12 @@ async function handle(comment) {
     await audit({ stage: "banned", comment: { author: comment.author, channelId: comment.channelId, text: comment.text } });
     return;
   }
+  // muted viewers stay VISIBLE to the moderator (feed shows the message) but
+  // nothing they say can trigger directives, cards, music, or votes
+  if (isMuted(comment)) {
+    await audit({ stage: "muted", comment: { author: comment.author, channelId: comment.channelId, text: comment.text } });
+    return;
+  }
 
   const mod = await moderator.moderate(comment);
   if (!mod.allowed) {
@@ -89,6 +107,27 @@ async function handle(comment) {
 
   // feed the Collective Mood Engine (only moderated comments reach the aggregate)
   moodState.record(comment);
+
+  // Superchat recognition (an automation): fired DETERMINISTICALLY before the
+  // director — a paid message must never go unacknowledged. Style is
+  // dashboard-configurable: golden card / classic shoutout / burst only.
+  let scRecognized = false;
+  if (comment.superchat) {
+    const auto = automation("superchat");
+    if (auto.enabled) {
+      scRecognized = true;
+      const tier = superchatTier(comment.superchat);
+      const directive = auto.style === "shoutout"
+        ? { action: "addShoutout", params: { who: comment.author, text: comment.text, tier, avatar: comment.avatar || "" } }
+        : auto.style === "burst-only"
+          ? { action: "burst", params: { intensity: tier === "large" ? 0.8 : 0.5 } }
+          : { action: "superchatCard", params: { who: comment.author, text: comment.text, amount: comment.superchat.amount || "", tier, avatar: comment.avatar || "" } };
+      await postMutate(directive).catch(() => {});
+      reportDelay(comment);
+      console.log(`  ★ SUPERCHAT ${comment.author} ${comment.superchat.amount || ""} (${tier}, ${auto.style})`);
+      await audit({ stage: "superchat", comment, tier, style: auto.style });
+    }
+  }
 
   // Music: a Suno share link is CONSUMED as a queue request; "!like" is CONSUMED
   // as a like for the current song; a heart/👍 in normal chat also likes the
@@ -178,6 +217,11 @@ async function handle(comment) {
   const fired = config.reactions ? await reactions.handle(comment).catch(() => []) : [];
 
   const dec = await director.decide(comment);
+  // a superchat already got its recognition card — don't double-shoutout
+  if (!dec.skip && dec.directive.action === "addShoutout" && scRecognized) {
+    await audit({ stage: "skipped", comment, reason: "superchat already recognized" });
+    return;
+  }
   if (dec.skip) {
     console.log(`  · skip  [${dec.skip}] ${comment.author}: ${comment.text}`);
     if (fired.length) reportDelay(comment); // a reaction still landed on screen
@@ -206,6 +250,7 @@ async function main() {
   console.log(`[ingest] source=${config.source} → ${config.mutateUrl}`);
   console.log(`[ingest] director: ${director.engine}`);
   console.log(`[ingest] moderation: rate=${config.ratePerMin}/min, blocklist=on, llm=${config.moderationLLM}`);
+  await loadAutomations();
   const banCount = await loadBans();
   if (banCount) console.log(`[ingest] ban list: ${banCount} entr${banCount === 1 ? "y" : "ies"}`);
   setVitalsProvider(() => ({

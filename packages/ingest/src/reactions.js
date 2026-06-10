@@ -28,10 +28,14 @@ export function createReactions({ postMutate, log = () => {}, perReactionMs = 70
     const author = comment.author || "viewer";
     const fired = [];
 
-    // 1) first-time welcome — "the room noticed you"
-    if (welcome && !seen.has(author)) {
+    // 1) first-time welcome — "the room noticed you" (an automation when
+    // `welcome` is a provider fn: the dashboard can disable it or swap the
+    // animation; a plain boolean keeps the old behavior)
+    const auto = typeof welcome === "function" ? welcome() : { enabled: !!welcome, style: "welcome-pop" };
+    if (auto.enabled && !seen.has(author)) {
       seen.add(author);
-      try { await postMutate({ action: "react", params: { kind: "welcome", who: author, avatar: comment.avatar || "" } }); fired.push("welcome"); log(`  ♥ WELCOME ${author}`); } catch {}
+      const kind = auto.style === "sparkle" ? "sparkle" : "welcome";
+      try { await postMutate({ action: "react", params: { kind, who: author, avatar: comment.avatar || "" } }); fired.push("welcome"); log(`  ♥ WELCOME ${author}`); } catch {}
     }
 
     // 2) emoji reaction (rate-limited globally so it stays delightful, not chaotic)

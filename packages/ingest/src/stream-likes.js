@@ -11,6 +11,7 @@ import { saveJson } from "./state.js";
 import { getAccessToken } from "./youtube-auth.js";
 import { discoverActiveBroadcast } from "./youtube.js";
 import { bill, unitsSpent, loadUsage } from "./quota.js";
+import { automation } from "./automations.js";
 
 const STATE_FILE = process.env.YT_LIKES_FILE || "./state/yt-likes.json";
 
@@ -79,8 +80,10 @@ export function createStreamLikes({ postMutate, log = () => {} }) {
     if (m > 0) {
       lastMilestone = m;
       log(`[likes] 🎉 stream-like milestone ${m} (now ${likes})`);
-      await postMutate({ action: "addShoutout", params: { tier: "large", who: "STREAM ❤", text: `${m.toLocaleString()} likes — thank you! 🎉` } }).catch(() => {});
-      await postMutate({ action: "burst", params: { intensity: 0.7 } }).catch(() => {});
+      if (automation("milestone").enabled) {
+        await postMutate({ action: "addShoutout", params: { tier: "large", who: "STREAM ❤", text: `${m.toLocaleString()} likes — thank you! 🎉` } }).catch(() => {});
+        await postMutate({ action: "burst", params: { intensity: 0.7 } }).catch(() => {});
+      }
     }
     await saveState();
   }

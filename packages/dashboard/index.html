@@ -169,6 +169,57 @@
     font: 10px var(--mono); padding: 2px 4px; cursor: pointer; border-radius: 2px; margin-left: 2px;
   }
   #feed { padding: 6px 0; }
+
+  /* ---- users view ---- */
+  .vswitch { display: flex; margin-right: 8px; }
+  .vswitch button {
+    background: #0c0f0c; border: 1px solid #283228; color: var(--dim);
+    font: 700 10px var(--mono); letter-spacing: .12em; padding: 4px 10px; cursor: pointer;
+  }
+  .vswitch button:first-child { border-radius: 2px 0 0 2px; }
+  .vswitch button:last-child { border-radius: 0 2px 2px 0; border-left: 0; }
+  .vswitch button.active { color: var(--green); border-color: #234c32; background: #0e1f15; }
+  .urow {
+    display: grid; grid-template-columns: 30px 1fr 80px 150px 80px;
+    gap: 10px; padding: 6px 12px; align-items: center;
+    border-bottom: 1px solid #131913; cursor: pointer;
+  }
+  .urow:hover { background: #101810; }
+  .urow img, .uavatar { width: 24px; height: 24px; border-radius: 50%; background: #1a221a; object-fit: cover; display: inline-block; }
+  .ubadge {
+    font-size: 9px; font-weight: 700; letter-spacing: .1em;
+    padding: 1px 5px; border-radius: 2px; border: 1px solid; margin-left: 6px;
+  }
+  .ubadge.b { color: var(--red); border-color: #532222; }
+  .ubadge.m { color: var(--amber); border-color: #5c4a16; }
+  .udhead { display: flex; align-items: center; gap: 14px; padding: 14px; border-bottom: 1px solid var(--line); }
+  .udhead img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
+  .udctl { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .btn.danger { color: #f1b8b8; border-color: #532222; background: #170d0d; }
+  .btn.danger:hover { background: #2a1010; }
+
+  /* superchat rows glow gold in the feed */
+  .row.sc { background: linear-gradient(90deg, rgba(251, 191, 36, 0.09), transparent 65%); box-shadow: inset 2px 0 0 #ffd34d; }
+  .scamt { color: #ffd34d; font-weight: 700; margin-right: 8px; white-space: nowrap; }
+  .c-sc { color: #ffd34d; border-color: #6b5410; background: #241a04; }
+
+  /* automations view */
+  .arow {
+    display: grid; grid-template-columns: 1fr 180px 90px; gap: 12px;
+    padding: 12px 14px; align-items: center; border-bottom: 1px solid #131913;
+  }
+  .arow .alabel { color: #cfe8cf; font-size: 14px; }
+  .arow .adesc { color: var(--dim); font-size: 11px; margin-top: 2px; }
+  .arow select {
+    background: #0c0f0c; border: 1px solid var(--line); color: var(--txt);
+    font: 11px var(--mono); padding: 5px 7px; border-radius: 3px; width: 100%;
+  }
+  .atoggle {
+    font: 700 10px var(--mono); letter-spacing: .12em; padding: 7px 0; text-align: center;
+    cursor: pointer; border-radius: 3px; border: 1px solid;
+  }
+  .atoggle.on { color: var(--green); border-color: #234c32; background: #0e1f15; }
+  .atoggle.off { color: var(--dim); border-color: #283228; background: transparent; }
   .row {
     /* trailing auto column holds song info on music rows, collapses to
        nothing everywhere else */
@@ -302,16 +353,23 @@
   <section>
     <h2>MODERATION FEED — LIVE</h2>
     <div id="toolbar">
+      <div class="vswitch"><button id="v-feed" class="active">FEED</button><button id="v-users">USERS</button><button id="v-autos">AUTOS</button></div>
       <button class="fchip active" data-f="all">ALL</button>
       <button class="fchip" data-f="blocked">BLOCKED</button>
       <button class="fchip" data-f="held">HELD</button>
       <button class="fchip" data-f="mod">MOD</button>
       <button class="fchip" data-f="music">MUSIC</button>
       <button class="fchip" data-f="vote">VOTE</button>
+      <button class="fchip" data-f="sc" style="color:#ffd34d">💰 SC</button>
       <input id="fsearch" placeholder="filter author / text…" autocomplete="off">
       <button id="fpause">⏸ PAUSE</button>
     </div>
     <div class="scroll" id="feedwrap"><div id="feed"></div></div>
+    <div class="scroll" id="userswrap" style="display:none">
+      <div id="users-list"></div>
+      <div id="user-detail" style="display:none"></div>
+    </div>
+    <div class="scroll" id="autowrap" style="display:none"><div id="autos-list"></div></div>
   </section>
 
   <!-- right: review queue -->
@@ -352,6 +410,9 @@
     vote: ["c-vote", "VOTE"], approved: ["c-mod", "APPROVED"], rejected_by_mod: ["c-mod", "REJECTED"],
     banned_by_mod: ["c-mod", "MOD BAN"], unbanned: ["c-mod", "UNBAN"], kill_switch: ["c-mod", "KILL"],
     error: ["c-blocked", "ERROR"], card_cooldown: ["c-skipped", "cooldn"], approve_failed: ["c-blocked", "AIRFAIL"],
+    muted: ["c-held", "MUTED"], muted_by_mod: ["c-mod", "MOD MUTE"], unmuted: ["c-mod", "UNMUTE"],
+    show_control: ["c-mod", "SHOW"], music_control: ["c-mod", "MUSIC"],
+    superchat: ["c-sc", "★ SUPER"], automation: ["c-mod", "AUTO"],
   };
 
   // ---- live feed: client-side event store + filters + pause ----
@@ -360,14 +421,18 @@
   const events = [];
   let filter = "all", search = "", paused = false, bufferedWhilePaused = 0;
   const GROUPS = {
-    blocked: ["blocked", "banned", "error", "approve_failed"],
+    blocked: ["blocked", "banned", "muted", "error", "approve_failed"],
     held: ["held", "card_held", "card", "card_cooldown"],
-    mod: ["approved", "rejected_by_mod", "banned_by_mod", "unbanned", "kill_switch", "show_control", "music_control"],
+    mod: ["approved", "rejected_by_mod", "banned_by_mod", "unbanned", "muted_by_mod", "unmuted", "kill_switch", "show_control", "music_control", "automation"],
     music: ["music_request", "music_like"],
     vote: ["vote"],
+    sc: ["superchat"],
   };
   function passes(e) {
-    if (filter !== "all" && !(GROUPS[filter] || []).includes(e.stage)) return false;
+    // the 💰 chip also matches any row whose comment carried money
+    if (filter === "sc") {
+      if (!(e.stage === "superchat" || e.comment?.superchat)) return false;
+    } else if (filter !== "all" && !(GROUPS[filter] || []).includes(e.stage)) return false;
     if (search) {
       const c = e.comment || {};
       if (!(`${c.author || ""} ${c.text || ""}`.toLowerCase().includes(search))) return false;
@@ -385,7 +450,7 @@
     const song = e.stage?.startsWith("music") && e.result?.title
       ? `♪ ${e.result.title} — ${e.result.artist || "?"}` : "";
     const row = document.createElement("div");
-    row.className = "row";
+    row.className = "row" + (c.superchat ? " sc" : "");
     row.dataset.seq = e.seq;
     const bannable = c.author && !["banned", "banned_by_mod", "unbanned"].includes(e.stage);
     // a cooldown skip can be replayed by a moderator (click the chip)
@@ -394,7 +459,7 @@
       `<span class="t">${esc((e.t || "").slice(11, 19))}</span>` +
       `<span class="chip ${cls}${replayable ? " replayable" : ""}" ${replayable ? 'title="apply anyway (mod override of the cooldown)"' : ""}>${esc(label)}</span>` +
       `<span class="who">${esc(c.author || "")}${bannable ? `<span class="banbox"><button data-ban="${esc(c.author)}" data-cid="${esc(c.channelId || "")}">ban</button></span>` : ""}</span>` +
-      `<span class="msg">${linkify(c.text || "")}${detail ? ` <small>· ${esc(detail)}</small>` : ""}</span>` +
+      `<span class="msg">${c.superchat ? `<span class="scamt">★ ${esc(c.superchat.amount || "PAID")}</span>` : ""}${linkify(c.text || "")}${detail ? ` <small>· ${esc(detail)}</small>` : ""}</span>` +
       `<span class="song">${esc(song)}</span>`;
     return row;
   }
@@ -444,8 +509,13 @@
     b.classList.add("active");
     filter = b.dataset.f;
     rebuildFeed();
+    if (typeof renderUsers === "function") renderUsers();
   }));
-  $("#fsearch").addEventListener("input", (ev) => { search = ev.target.value.trim().toLowerCase(); rebuildFeed(); });
+  $("#fsearch").addEventListener("input", (ev) => {
+    search = ev.target.value.trim().toLowerCase();
+    rebuildFeed();
+    if (typeof renderUsers === "function") renderUsers();
+  });
   $("#fpause").addEventListener("click", () => {
     paused = !paused;
     $("#fpause").classList.toggle("on", paused);
@@ -623,6 +693,149 @@
     const id = item.dataset.id;
     if (ev.target.closest(".approve")) api(`/admin/pending/${id}`, { action: "approve" }).then((r) => { toast(r.ok ? "ON AIR" : `air failed: ${r.error || "?"}`); refresh(); });
     if (ev.target.closest(".reject")) api(`/admin/pending/${id}`, { action: "reject" }).then(() => { toast("rejected"); refresh(); });
+  });
+
+  // ---- USERS view: directory of everyone who interacted + per-user controls --
+  let view = "feed", currentUser = null, currentUserData = null, usersTimer = null;
+  const fmtAgo = (iso) => {
+    if (!iso) return "—";
+    const s = (Date.now() - new Date(iso).getTime()) / 1000;
+    return s < 60 ? `${s | 0}s` : s < 3600 ? `${(s / 60) | 0}m` : `${(s / 3600) | 0}h`;
+  };
+  function setView(v) {
+    view = v;
+    for (const [id, name] of [["#v-feed", "feed"], ["#v-users", "users"], ["#v-autos", "autos"]]) {
+      $(id).classList.toggle("active", v === name);
+    }
+    $("#feedwrap").style.display = v === "feed" ? "" : "none";
+    $("#userswrap").style.display = v === "users" ? "" : "none";
+    $("#autowrap").style.display = v === "autos" ? "" : "none";
+    clearInterval(usersTimer);
+    if (v === "users") {
+      loadUsers();
+      usersTimer = setInterval(() => (currentUser ? loadUser(currentUser) : loadUsers()), 5000);
+    } else { currentUser = null; }
+    if (v === "autos") loadAutos();
+  }
+  $("#v-feed").addEventListener("click", () => setView("feed"));
+  $("#v-users").addEventListener("click", () => setView("users"));
+  $("#v-autos").addEventListener("click", () => setView("autos"));
+
+  // ---- AUTOMATIONS view: event → pre-built animation bindings ----
+  async function loadAutos() {
+    const r = await api("/admin/automations").catch(() => null);
+    if (!r?.ok || view !== "autos") return;
+    $("#autos-list").innerHTML = r.automations.map((a) => `
+      <div class="arow" data-key="${esc(a.key)}">
+        <div><div class="alabel">${esc(a.label)}</div><div class="adesc">${esc(a.desc)}</div></div>
+        <select data-style="${esc(a.key)}" ${a.styles.length < 2 ? "disabled" : ""}>
+          ${a.styles.map((s) => `<option value="${esc(s)}" ${s === a.style ? "selected" : ""}>${esc(s)}</option>`).join("")}
+        </select>
+        <div class="atoggle ${a.enabled ? "on" : "off"}" data-toggle="${esc(a.key)}">${a.enabled ? "● ON" : "○ OFF"}</div>
+      </div>`).join("");
+  }
+  $("#autos-list").addEventListener("click", async (ev) => {
+    const t = ev.target.closest("[data-toggle]");
+    if (!t) return;
+    const on = t.classList.contains("on");
+    const r = await api("/admin/automations", { key: t.dataset.toggle, enabled: !on });
+    toast(r.ok ? `${t.dataset.toggle}: ${!on ? "on" : "off"}` : `failed: ${r.error || "?"}`);
+    loadAutos();
+  });
+  $("#autos-list").addEventListener("change", async (ev) => {
+    const s = ev.target.closest("select[data-style]");
+    if (!s) return;
+    const r = await api("/admin/automations", { key: s.dataset.style, style: s.value });
+    toast(r.ok ? `${s.dataset.style} → ${s.value}` : `failed: ${r.error || "?"}`);
+    loadAutos();
+  });
+
+  // the toolbar filter applies here too: chips → users with that kind of
+  // activity (BLOCKED also matches currently banned/muted), search → name/id
+  let lastUsers = [];
+  function userPasses(u) {
+    if (filter !== "all") {
+      const g = GROUPS[filter] || [];
+      const hasActivity = g.some((s) => u.stages[s]);
+      const statusMatch = filter === "blocked" && (u.banned || u.muted);
+      if (!hasActivity && !statusMatch) return false;
+    }
+    if (search && !(u.author.toLowerCase().includes(search) || (u.channelId || "").toLowerCase().includes(search))) return false;
+    return true;
+  }
+  function renderUsers() {
+    if (view !== "users" || currentUser) return;
+    $("#user-detail").style.display = "none";
+    const ul = $("#users-list");
+    ul.style.display = "";
+    const shown = lastUsers.filter(userPasses);
+    ul.innerHTML = shown.map((u) => `
+      <div class="urow" data-u="${esc(u.author)}">
+        ${u.avatar ? `<img src="${esc(u.avatar)}" alt="">` : `<span class="uavatar"></span>`}
+        <span class="who">${esc(u.author)}${u.banned ? '<span class="ubadge b">BANNED</span>' : ""}${u.muted ? '<span class="ubadge m">MUTED</span>' : ""}${u.superchats ? '<span class="ubadge" style="color:var(--cyan);border-color:#1c4b56">$' + u.superchats + "</span>" : ""}</span>
+        <span class="t">${u.msgs} msg${u.msgs === 1 ? "" : "s"}</span>
+        <span class="t">✓${u.stages.applied || 0} applied · ✗${(u.stages.blocked || 0) + (u.stages.banned || 0) + (u.stages.muted || 0)} dropped</span>
+        <span class="t">${fmtAgo(u.last)} ago</span>
+      </div>`).join("") || `<div id="none-pending">— ${lastUsers.length ? "NO MATCHES" : "NO USERS YET"} —</div>`;
+  }
+  async function loadUsers() {
+    const r = await api("/admin/users").catch(() => null);
+    if (!r?.ok) return;
+    lastUsers = r.users;
+    renderUsers();
+  }
+
+  async function loadUser(author) {
+    const r = await fetch(`/admin/user?author=${encodeURIComponent(author)}`).then((x) => x.json()).catch(() => null);
+    if (!r?.ok || view !== "users") return;
+    currentUser = author;
+    currentUserData = r.user;
+    const u = r.user;
+    $("#users-list").style.display = "none";
+    const d = $("#user-detail");
+    d.style.display = "";
+    const ctl = [`<button class="btn" data-uact="back">← ALL USERS</button>`];
+    ctl.push(u.muted
+      ? `<button class="btn" data-uact="unmute">🔊 UNMUTE</button>`
+      : `<button class="btn" data-uact="mute" title="messages stay visible here but can't trigger anything">🔇 MUTE</button>`);
+    if (u.banned) ctl.push(`<button class="btn" data-uact="unban">♻ UNBAN</button>`);
+    else ctl.push(
+      `<button class="btn danger" data-uact="kick" title="10-minute ban">⏏ KICK 10m</button>`,
+      `<button class="btn danger" data-uact="timeout">⏱ TIMEOUT 1h</button>`,
+      `<button class="btn danger" data-uact="ban">⛔ BAN</button>`,
+    );
+    d.innerHTML = `
+      <div class="udhead">
+        ${u.avatar ? `<img src="${esc(u.avatar)}" alt="">` : `<span class="uavatar" style="width:44px;height:44px"></span>`}
+        <div>
+          <div style="font-size:16px;color:#cfe8cf">${esc(u.author)}${u.banned ? '<span class="ubadge b">BANNED</span>' : ""}${u.muted ? '<span class="ubadge m">MUTED</span>' : ""}</div>
+          <div class="t" style="font-size:11px">${u.channelId ? esc(u.channelId) + " · " : ""}${u.msgs} msgs · ✓${u.stages.applied || 0} applied · ✗${u.stages.blocked || 0} blocked · ${u.superchats || 0} superchat${u.superchats === 1 ? "" : "s"} · first seen ${fmtAgo(u.first)} ago · last ${fmtAgo(u.last)} ago</div>
+        </div>
+      </div>
+      <div class="udctl">${ctl.join("")}</div>
+      <div id="ud-events"></div>`;
+    const ev = $("#ud-events");
+    for (const e of (u.events || []).slice().reverse()) ev.appendChild(buildRow(e));
+  }
+
+  $("#users-list").addEventListener("click", (ev) => {
+    const r = ev.target.closest(".urow");
+    if (r) loadUser(r.dataset.u);
+  });
+  $("#user-detail").addEventListener("click", async (ev) => {
+    const b = ev.target.closest("button[data-uact]");
+    if (!b || !currentUser) return;
+    const act = b.dataset.uact;
+    if (act === "back") { currentUser = null; currentUserData = null; $("#user-detail").style.display = "none"; loadUsers(); return; }
+    const ACTS = {
+      mute: { action: "mute" }, unmute: { action: "unmute" },
+      ban: { action: "ban" }, unban: { action: "unban" },
+      kick: { action: "ban", durationMinutes: 10 }, timeout: { action: "ban", durationMinutes: 60 },
+    };
+    await api("/admin/bans", { author: currentUser, channelId: currentUserData?.channelId || "", ...ACTS[act] });
+    toast(`${act}: ${currentUser}`);
+    loadUser(currentUser);
+    refresh();
   });
 
   $("#c-send").addEventListener("click", () => {

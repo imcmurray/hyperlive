@@ -41,6 +41,7 @@ const ALLOWED_ACTIONS = new Set([
   "renderWarning",
   "status",
   "mutateElement", // Tier 1: clamped ops against registry elements only
+  "superchatCard", // golden paid-message recognition (deterministic, ingest-fired)
 ]);
 // NB: showCard/takeover/clearCards are deliberately NOT in this allowlist —
 // model-authored markup may only enter through POST /card and /takeover below,

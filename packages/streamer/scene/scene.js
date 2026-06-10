@@ -1068,6 +1068,48 @@
       return { ok: true, tier };
     },
 
+    // golden recognition card for paid messages — deterministic (the ingest
+    // fires this on EVERY superchat, before the director), scaled by tier
+    superchatCard(p = {}) {
+      const wrap = $("#superchats");
+      if (!wrap) return { ok: false };
+      const tier = TIERS.includes(p.tier) ? p.tier : "small";
+      const who = clean(p.who, 40) || "supporter";
+      const msg = clean(p.text, 140);
+      const amount = /^[\d\s.,$€£¥]{1,12}$/.test(String(p.amount || "")) ? String(p.amount) : "";
+
+      const card = document.createElement("div");
+      card.className = "sc-card tier-" + tier;
+      const shimmer = document.createElement("div"); shimmer.className = "sc-shimmer";
+      const badge = document.createElement("div"); badge.className = "sc-badge";
+      const label = document.createElement("div"); label.className = "sc-label"; label.textContent = "SUPER CHAT";
+      const amt = document.createElement("div"); amt.className = "sc-amount"; amt.textContent = amount || "★";
+      badge.append(label, amt);
+      const av = avatarEl(who, p.avatar, 46);
+      const body = document.createElement("div"); body.className = "sc-body";
+      const whoEl = document.createElement("div"); whoEl.className = "sc-who"; whoEl.textContent = who;
+      body.appendChild(whoEl);
+      if (msg) { const m = document.createElement("div"); m.className = "sc-msg"; m.textContent = msg; body.appendChild(m); }
+      card.append(shimmer, badge, av, body);
+      wrap.prepend(card);
+      while (wrap.children.length > 3) wrap.lastChild.remove(); // cap the stack
+
+      const hold = { small: 9, medium: 14, large: 22 }[tier];
+      if (gsap) {
+        gsap.fromTo(card, { opacity: 0, y: -46, scale: 0.85 },
+          { opacity: 1, y: 0, scale: 1, duration: 0.65, ease: "back.out(1.7)" });
+        // shimmer sweep, repeating gently while the card holds
+        gsap.fromTo(shimmer, { xPercent: -120 }, { xPercent: 120, duration: 1.6, ease: "power1.inOut", repeat: Math.ceil(hold / 3), repeatDelay: 1.2 });
+        // festive burst scaled by tier
+        spawnConfetti(); spawnSparkle();
+        if (tier !== "small") { spawnConfetti(); SceneAPI.burst({ intensity: tier === "large" ? 0.7 : 0.45 }); }
+        gsap.to(card, { opacity: 0, y: -30, scale: 0.94, duration: 0.6, delay: hold, ease: "power2.in", onComplete: () => card.remove() });
+      } else {
+        setTimeout(() => card.remove(), hold * 1000);
+      }
+      return { ok: true, tier, amount };
+    },
+
     burst(p = {}) {
       const intensity = clampNum(p.intensity, 0, 1, 0.5);
       let flash = $("#flash");
