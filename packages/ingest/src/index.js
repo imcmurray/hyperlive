@@ -15,7 +15,7 @@ import { createVotes } from "./votes.js";
 import { createMusic, parseSunoShare, isLikeCommand, hasHeart } from "./music.js";
 import { authorCard, parseCardCommand } from "./card-author.js";
 import { isBanned, loadBans } from "./bans.js";
-import { startAdmin, publishFeed, enqueuePending, previewMarkup, setVitalsProvider } from "./admin.js";
+import { startAdmin, publishFeed, enqueuePending, previewMarkup, setVitalsProvider, setReplayHandler } from "./admin.js";
 import { unitsSpent } from "./quota.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
 import { youtubeSource } from "./youtube.js";
@@ -214,6 +214,23 @@ async function main() {
     quotaLimit: config.yt.quotaLimit,
     source: config.source,
   }));
+  // dashboard replay: mod overrides a cooldown skip — intent re-runs and the
+  // result lands in the feed through the normal audit path
+  setReplayHandler(async (comment) => {
+    const dec = await director.decide(comment, Date.now(), { ignoreCooldown: true });
+    if (dec.skip) return { ok: false, error: dec.skip };
+    if (dec.directive.action === "addShoutout" && comment.avatar) dec.directive.params.avatar = comment.avatar;
+    try {
+      const out = await postMutate(dec.directive);
+      applied += 1;
+      console.log(`  ✓ APPLY ${dec.directive.action} (mod replay) ← ${comment.author}`);
+      await audit({ stage: "applied", comment, directive: dec.directive, out, replay: true });
+      return { ok: true, action: dec.directive.action };
+    } catch (e) {
+      await audit({ stage: "error", comment, directive: dec.directive, error: e.message });
+      return { ok: false, error: e.message };
+    }
+  });
   const admin = config.dashboard ? startAdmin({ log: console.log }) : null;
   if (config.holdCards) console.log("[ingest] HOLD_CARDS=on — viewer cards queue for moderator approval");
   if (config.maxEvents) console.log(`[ingest] demo mode: stopping after ${config.maxEvents} events`);

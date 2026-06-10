@@ -54,6 +54,8 @@ let meter = null;     // audio level meter (eq bars)
 let renderMode = "?"; // gpu | cpu
 let gpuRenderer = "";
 let stopping = false; // true during graceful shutdown (silences the watchdog)
+let monitorFrame = null;   // latest screencast JPEG (GPU path) — feeds /monitor.mjpeg
+let monitorClients = 0;    // cap concurrent live-monitor viewers
 // current show phase, tracked from the directives that drive it (see
 // applyDirective): "intro" (pre-show) | "countdown" | "onair" | "outro".
 // Defaults to onair; set to intro on boot when STANDBY_ON_BOOT is on.
@@ -313,6 +315,38 @@ function buildControlApp() {
     }
   });
 
+  // live monitor: MJPEG stream of the scene — on the GPU path these are the
+  // EXACT frames going to ffmpeg (shared screencast buffer); on the CPU path
+  // it falls back to ~3fps page screenshots. Video only — renders natively
+  // in an <img>, no client libs. The dashboard's pop-out monitor uses this.
+  app.get("/monitor.mjpeg", async (req, res) => {
+    if (!page) return res.status(503).json({ ok: false, error: "scene not ready" });
+    if (monitorClients >= 3) return res.status(503).json({ ok: false, error: "monitor busy (3 viewers max)" });
+    monitorClients++;
+    res.writeHead(200, { "content-type": "multipart/x-mixed-replace; boundary=hlframe", "cache-control": "no-store" });
+    let alive = true;
+    req.on("close", () => { alive = false; });
+    try {
+      while (alive && !stopping) {
+        let buf = monitorFrame;
+        if (!buf) {
+          try { buf = Buffer.from(await page.screenshot({ type: "jpeg", quality: 70 })); }
+          catch { break; }
+        }
+        // slow client → drop frames rather than buffer unbounded (same rule
+        // as the ffmpeg stdin pump)
+        if (res.writableLength < 4 * 1024 * 1024) {
+          res.write(`--hlframe\r\ncontent-type: image/jpeg\r\ncontent-length: ${buf.length}\r\n\r\n`);
+          res.write(buf);
+          res.write("\r\n");
+        }
+        await new Promise((r) => setTimeout(r, monitorFrame ? 100 : 350)); // ~10fps shared / ~3fps fallback
+      }
+    } catch { /* client gone */ }
+    monitorClients--;
+    res.end();
+  });
+
   // PNG screenshot of the current live scene — handy for visual QA
   app.get("/screenshot", async (_req, res) => {
     if (!page) return res.status(503).json({ ok: false, error: "scene not ready" });
@@ -557,6 +591,7 @@ async function main() {
     cdp.on("Page.screencastFrame", (f) => {
       cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {}); // keep frames flowing
       latestFrame = Buffer.from(f.data, "base64");
+      monitorFrame = latestFrame; // share with /monitor.mjpeg (same frames ffmpeg gets)
       captured++;
     });
     const frameIntervalMs = 1000 / eff.fps;

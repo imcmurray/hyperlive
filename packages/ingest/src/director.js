@@ -118,18 +118,21 @@ export function createDirector() {
   return {
     engine: useLLM ? "llm" : "rules",
     /**
+     * ignoreCooldown: a moderator replaying a cooldown-skipped comment from
+     * the dashboard — human judgment overrides the thrash protection (but
+     * NOT the intent/allowlist checks; those always run)
      * @returns {Promise<{directive:object}|{skip:string}>}
      */
-    async decide(comment, now = Date.now()) {
+    async decide(comment, now = Date.now(), { ignoreCooldown = false } = {}) {
       // global cooldown FIRST (cheap) — so we never spend an LLM call on a
       // comment that would be dropped for thrashing anyway
-      if (now - lastAnyAt < config.globalCooldownMs) return { skip: "global cooldown" };
+      if (!ignoreCooldown && now - lastAnyAt < config.globalCooldownMs) return { skip: "global cooldown" };
 
       const directive = await computeIntent(comment);
       if (!directive) return { skip: "no intent" };
 
       // heavier actions get a longer dedicated cooldown
-      if (HEAVY.has(directive.action)) {
+      if (!ignoreCooldown && HEAVY.has(directive.action)) {
         const last = lastActionAt.get(directive.action) || 0;
         if (now - last < config.heavyCooldownMs) return { skip: `${directive.action} cooldown` };
       }

@@ -55,6 +55,8 @@
   .led.bad i { background: var(--red);   box-shadow: 0 0 8px var(--red); }
   @keyframes pulse { 50% { opacity: .55; } }
   .spacer { flex: 1; }
+  #vitals-bar { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
+  #vitals-bar b { color: var(--txt); font-weight: 400; }
   #clock { color: var(--dim); letter-spacing: .12em; font-size: 12px; }
   /* guarded kill switch */
   #kill {
@@ -86,9 +88,23 @@
   #monitor {
     display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover;
     background: #000; border-bottom: 1px solid var(--line);
-    transition: opacity .3s;
+    transition: opacity .3s; cursor: zoom-in;
   }
   #monitor.stale { opacity: .25; }
+  /* pop-out live monitor (MJPEG — the broadcast's own frames, video only) */
+  #live-modal {
+    position: fixed; inset: 0; z-index: 200; display: none;
+    align-items: center; justify-content: center; flex-direction: column; gap: 10px;
+    background: rgba(2, 4, 2, 0.88); cursor: zoom-out;
+  }
+  #live-modal[data-open="true"] { display: flex; }
+  #live-img {
+    max-width: 92vw; max-height: 84vh; background: #000;
+    border: 1px solid var(--line); border-radius: 4px;
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7);
+  }
+  #live-cap { font-size: 11px; letter-spacing: .18em; color: var(--dim); }
+  #live-cap b { color: var(--red); animation: pulse 1.6s infinite; font-weight: 400; }
   .stat { padding: 10px 12px; border-bottom: 1px solid var(--line); }
   .stat .k { font-size: 10px; color: var(--dim); letter-spacing: .18em; }
   .stat .v { font-size: 15px; margin-top: 2px; word-break: break-all; }
@@ -154,7 +170,9 @@
   }
   #feed { padding: 6px 0; }
   .row {
-    display: grid; grid-template-columns: 64px 86px 130px 1fr 44px;
+    /* trailing auto column holds song info on music rows, collapses to
+       nothing everywhere else */
+    display: grid; grid-template-columns: 64px 86px 190px 1fr auto;
     gap: 10px; padding: 5px 12px; align-items: baseline;
     border-bottom: 1px solid #131913;
     animation: land .35s ease-out;
@@ -170,17 +188,32 @@
   .c-banned   { color: var(--red);    border-color: #532222; background: #2a0c0c; }
   .c-held     { color: var(--amber);  border-color: #5c4a16; background: #211a08; }
   .c-skipped  { color: var(--dim);    border-color: #283228; background: transparent; }
+  /* a cooldown skip is mod-replayable: click the chip to APPLY it anyway */
+  .chip.replayable { cursor: pointer; }
+  .chip.replayable:hover { color: var(--green); border-color: #234c32; background: #0e1f15; }
+  .chip.replayable:hover::after { content: " ▶"; }
   .c-music    { color: var(--cyan);   border-color: #1c4b56; background: #0a1b1f; }
   .c-vote     { color: var(--violet); border-color: #3f3760; background: #14101f; }
   .c-mod      { color: var(--amber);  border-color: #5c4a16; background: #1a1505; }
   .row .who { color: #9fc09f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--txt); }
   .row .msg small { color: var(--dim); }
-  .row .act button {
-    background: none; border: 1px solid #3a2020; color: #b97c7c; font: 10px var(--mono);
-    padding: 2px 6px; cursor: pointer; border-radius: 2px;
+  .row .msg a { color: var(--cyan); text-decoration: underline dotted; }
+  .row .msg a:hover { text-decoration: underline; }
+  .row .song {
+    color: var(--cyan); font-size: 12px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; max-width: 300px;
   }
-  .row .act button:hover { background: #2a1010; color: #f1b8b8; }
+  /* ban affordance rides next to the name; near-hidden until the row is hovered */
+  .banbox { display: inline; margin-left: 7px; }
+  .banbox > button {
+    background: none; border: 1px solid #3a2020; color: #b97c7c; font: 10px var(--mono);
+    padding: 1px 5px; cursor: pointer; border-radius: 2px;
+    opacity: .25; transition: opacity .12s;
+  }
+  .row:hover .banbox > button { opacity: 1; }
+  .banbox > button:hover { background: #2a1010; color: #f1b8b8; }
+  .banbox.mini-menu > button { opacity: 1; } /* an open menu never dims */
 
   /* ---- right: pending review + compose ---- */
   .pending-item {
@@ -225,6 +258,7 @@
     <span class="led" id="led-scene"><i></i>SCENE</span>
   </div>
   <div class="spacer"></div>
+  <span id="vitals-bar"></span>
   <span id="clock"></span>
   <button id="kill" title="clear all model-generated content from the stage">◉ KILL GENERATED</button>
 </header>
@@ -255,9 +289,6 @@
       <button data-music="fadein">FADE IN</button>
     </div>
     <div id="upnext"></div>
-    <h2>VITALS</h2>
-    <div class="stat"><div class="k">PIPELINE</div><div class="v" id="s-pipe" style="font-size:12px">—</div></div>
-    <div class="stat"><div class="k">YT QUOTA</div><div class="v" id="s-quota" style="font-size:12px">—</div></div>
     <h2>BAN LIST</h2>
     <div class="scroll" id="bans"></div>
     <form id="ban-form">
@@ -299,6 +330,10 @@
   </section>
 </main>
 <div id="toast"></div>
+<div id="live-modal" data-open="false">
+  <img id="live-img" alt="live broadcast monitor">
+  <div id="live-cap"><b>●</b> LIVE MONITOR — the broadcast's own frames, video only · click or ESC to close</div>
+</div>
 
 <script>
 (() => {
@@ -339,18 +374,28 @@
     }
     return true;
   }
+  // escape first, then turn surviving URLs into links (quotes are already
+  // entity-escaped, so the href attribute can't be broken out of)
+  const linkify = (t) => esc(t).replace(/https?:\/\/[^\s<]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
   function buildRow(e) {
     const c = e.comment || {};
     const [cls, label] = CHIP[e.stage] || ["c-skipped", e.stage || "?"];
-    const detail = e.reason || e.error || (e.directive ? e.directive.action : "") || e.request || "";
+    const detail = e.reason || e.error || e.result?.reason || (e.directive ? e.directive.action : "") || e.request || "";
+    // music rows: resolved song name + artist ride in the trailing column
+    const song = e.stage?.startsWith("music") && e.result?.title
+      ? `♪ ${e.result.title} — ${e.result.artist || "?"}` : "";
     const row = document.createElement("div");
     row.className = "row";
+    row.dataset.seq = e.seq;
+    const bannable = c.author && !["banned", "banned_by_mod", "unbanned"].includes(e.stage);
+    // a cooldown skip can be replayed by a moderator (click the chip)
+    const replayable = e.stage === "skipped" && /cooldown/.test(detail);
     row.innerHTML =
       `<span class="t">${esc((e.t || "").slice(11, 19))}</span>` +
-      `<span class="chip ${cls}">${esc(label)}</span>` +
-      `<span class="who">${esc(c.author || "")}</span>` +
-      `<span class="msg">${esc(c.text || "")}${detail ? ` <small>· ${esc(detail)}</small>` : ""}</span>` +
-      `<span class="act">${c.author && !["banned", "banned_by_mod", "unbanned"].includes(e.stage) ? `<button data-ban="${esc(c.author)}" data-cid="${esc(c.channelId || "")}">ban</button>` : ""}</span>`;
+      `<span class="chip ${cls}${replayable ? " replayable" : ""}" ${replayable ? 'title="apply anyway (mod override of the cooldown)"' : ""}>${esc(label)}</span>` +
+      `<span class="who">${esc(c.author || "")}${bannable ? `<span class="banbox"><button data-ban="${esc(c.author)}" data-cid="${esc(c.channelId || "")}">ban</button></span>` : ""}</span>` +
+      `<span class="msg">${linkify(c.text || "")}${detail ? ` <small>· ${esc(detail)}</small>` : ""}</span>` +
+      `<span class="song">${esc(song)}</span>`;
     return row;
   }
   function appendRow(e) {
@@ -384,6 +429,7 @@
           refresh();
         } else if (["approved", "rejected_by_mod", "banned_by_mod", "unbanned"].includes(e.stage)) refresh();
         if (paused) { bufferedWhilePaused++; $("#fpause").textContent = `▶ RESUME (${bufferedWhilePaused})`; return; }
+        if (hoverPause || menuLock) { missedWhileHover = true; return; } // frozen under the cursor / open menu
         if (passes(e)) appendRow(e);
       } catch {}
     };
@@ -407,20 +453,69 @@
     else $("#fpause").textContent = "▶ RESUME (0)";
   });
 
+  // feed-freeze, two strengths:
+  //  hover  — cursor on a clickable target (replay chip / ban button): frozen
+  //           while hovered, released on mouse-off
+  //  menu   — a ban menu is OPEN: stays frozen regardless of hover until a
+  //           duration is picked or the user clicks anywhere else (dismiss)
+  // missed events flow back in the moment the freeze lifts
+  let hoverPause = false, menuLock = false, missedWhileHover = false;
+  let openMenu = null; // { box, who, cid }
+  const HOVER_SEL = ".chip.replayable, .banbox";
+  const flushMissed = () => { if (missedWhileHover && !paused) { missedWhileHover = false; rebuildFeed(); } };
+  const unfreeze = () => { hoverPause = false; if (!menuLock) flushMissed(); };
+  const closeMenu = (applied) => {
+    if (!openMenu) return;
+    if (applied) { openMenu.box.classList.remove("mini-menu"); openMenu.box.innerHTML = `<small style="color:var(--dim)">✓</small>`; }
+    else { // dismissed — put the plain ban button back
+      openMenu.box.classList.remove("mini-menu");
+      openMenu.box.innerHTML = `<button data-ban="${openMenu.who}" data-cid="${openMenu.cid}">ban</button>`;
+    }
+    openMenu = null;
+    menuLock = false;
+    unfreeze();
+  };
+  feed.addEventListener("mouseover", (ev) => { if (ev.target.closest(HOVER_SEL)) hoverPause = true; });
+  feed.addEventListener("mouseout", (ev) => { if (ev.target.closest(HOVER_SEL)) unfreeze(); });
+  feedwrap.addEventListener("mouseleave", unfreeze); // insurance against missed mouseouts
+  // clicking anywhere outside an open ban menu dismisses it (and unfreezes)
+  document.addEventListener("click", (ev) => {
+    if (openMenu && !ev.target.closest(".banbox.mini-menu")) closeMenu(false);
+  });
+
   // ban from the feed: the duration choice IS the confirmation
   feed.addEventListener("click", (ev) => {
+    // mod replay of a cooldown-skipped comment: chip click → apply anyway
+    const chip = ev.target.closest(".chip.replayable");
+    if (chip) {
+      const seq = Number(chip.closest(".row")?.dataset.seq);
+      const e = events.find((x) => x.seq === seq);
+      if (!e?.comment) return;
+      chip.classList.remove("replayable"); // also drops it from HOVER_SEL —
+      unfreeze();                          // so release the freeze explicitly
+      api("/admin/replay", { comment: e.comment }).then((r) => {
+        toast(r.ok ? `applied: ${r.action} ← ${e.comment.author}` : `replay: ${r.error || "no-op"}`);
+      });
+      return;
+    }
     const d = ev.target.closest("button[data-dur]");
     if (d) {
       api("/admin/bans", { action: "ban", author: d.dataset.ban, channelId: d.dataset.cid, durationMinutes: Number(d.dataset.dur) })
         .then(() => { toast(`${d.dataset.dur === "0" ? "banned" : `timeout ${d.dataset.dur}m`}: ${d.dataset.ban}`); refresh(); });
+      closeMenu(true); // duration picked → release the feed
       return;
     }
     const b = ev.target.closest("button[data-ban]");
     if (!b) return;
+    ev.stopPropagation(); // don't let the document dismiss-listener see the opening click
+    if (openMenu) closeMenu(false); // only one menu at a time
     const who = esc(b.dataset.ban), cid = esc(b.dataset.cid || "");
-    b.parentElement.classList.add("mini-menu");
-    b.parentElement.innerHTML = [["10", "10m"], ["60", "1h"], ["0", "PERM"]]
+    const box = b.closest(".banbox");
+    box.classList.add("mini-menu");
+    box.innerHTML = [["10", "10m"], ["60", "1h"], ["0", "PERM"]]
       .map(([v, l]) => `<button data-dur="${v}" data-ban="${who}" data-cid="${cid}">${l}</button>`).join("");
+    openMenu = { box, who, cid };
+    menuLock = true;
   });
 
   // ---- state poll: health LEDs, bans, pending ----
@@ -441,10 +536,10 @@
       ? "UP NEXT " + nexts.map((t) => `<b>${esc(t.title)}</b>`).join(" · ")
       : "";
 
-    // vitals + title badge
+    // vitals (top bar) + title badge
     const v = st.vitals || {};
-    $("#s-pipe").textContent = `${v.processed || 0} in · ${v.applied || 0} applied · ${v.blocked || 0} blocked`;
-    $("#s-quota").textContent = v.source === "youtube" ? `${v.quotaUnits || 0} / ${v.quotaLimit || "?"} units` : `— (${v.source || "?"} source)`;
+    const quota = v.source === "youtube" ? ` · YT <b>${v.quotaUnits || 0}</b>/${v.quotaLimit || "?"}u` : "";
+    $("#vitals-bar").innerHTML = `<b>${v.processed || 0}</b> in · <b>${v.applied || 0}</b> applied · <b>${v.blocked || 0}</b> blocked${quota}`;
     const pn = (st.pending || []).length;
     document.title = (pn ? `(${pn}) ` : "") + "HYPERLIVE · MOD CONSOLE";
 
@@ -509,6 +604,18 @@
   const pollMonitor = () => { monitor.src = "/admin/stage.png?t=" + Date.now(); };
   pollMonitor();
   setInterval(pollMonitor, 5000);
+
+  // click the thumbnail → pop-out live player (MJPEG stream of the broadcast
+  // frames). Clearing src on close drops the connection server-side.
+  const liveModal = $("#live-modal"), liveImg = $("#live-img");
+  const openLive = () => { liveImg.src = "/admin/monitor.mjpeg?t=" + Date.now(); liveModal.dataset.open = "true"; };
+  const closeLive = () => { liveModal.dataset.open = "false"; liveImg.src = ""; };
+  monitor.addEventListener("click", openLive);
+  liveModal.addEventListener("click", closeLive);
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && liveModal.dataset.open === "true") closeLive(); });
+  // bookmarkable pop-out — open AFTER load (an endless MJPEG <img> would
+  // otherwise hold the load event hostage and spin the tab forever)
+  if (location.hash === "#live") window.addEventListener("load", () => setTimeout(openLive, 50));
 
   $("#pending").addEventListener("click", (ev) => {
     const item = ev.target.closest(".pending-item");

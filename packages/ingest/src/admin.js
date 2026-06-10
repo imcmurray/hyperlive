@@ -27,6 +27,10 @@ const DASH_HTML = path.resolve(__dirname, "../../dashboard/index.html");
 let vitalsProvider = () => ({});
 export function setVitalsProvider(fn) { vitalsProvider = fn; }
 
+// ---- replay: a mod re-runs a cooldown-skipped comment through the director --
+let replayHandler = null;
+export function setReplayHandler(fn) { replayHandler = fn; }
+
 // ---- live moderation feed: ring buffer + SSE fanout ------------------------
 const RING_MAX = 250;
 const ring = [];
@@ -134,6 +138,22 @@ export function startAdmin({ log = console.log } = {}) {
         });
       }
 
+      // live MJPEG monitor: stream the broadcast frames through (the pop-out
+      // player). Tunneled mods still only need :8090.
+      if (route === "GET /admin/monitor.mjpeg") {
+        const ctrl = new AbortController();
+        req.on("close", () => ctrl.abort());
+        try {
+          const up = await fetch(`${config.controlBase}/monitor.mjpeg`, { signal: ctrl.signal });
+          if (!up.ok || !up.body) { res.writeHead(503); return res.end(); }
+          res.writeHead(200, { "content-type": up.headers.get("content-type") || "multipart/x-mixed-replace", "cache-control": "no-store" });
+          for await (const chunk of up.body) {
+            if (!res.write(chunk)) await new Promise((r) => res.once("drain", r));
+          }
+        } catch { /* viewer closed or upstream died */ }
+        return res.end();
+      }
+
       // real-time stage monitor: proxy the streamer's screenshot so a tunneled
       // moderator only needs port 8090 (YouTube's own preview runs ~30s behind —
       // useless for "kill it now" decisions)
@@ -223,6 +243,23 @@ export function startAdmin({ log = console.log } = {}) {
         if (!pv.ok) return json(res, 422, { ok: false, error: pv.error || `preview failed (${pv.status})` });
         const entry = enqueuePending({ kind, who: String(b.who || "moderator"), request: "(composed in dashboard)", html, screenshot: pv.screenshot, vision: pv.vision });
         return json(res, 200, { ok: true, id: entry.id });
+      }
+
+      // mod clicked a cooldown-skipped row: re-run it through the director
+      // with cooldowns bypassed (intent + allowlist validation still apply)
+      if (route === "POST /admin/replay") {
+        if (!replayHandler) return json(res, 503, { ok: false, error: "replay not wired" });
+        const b = await readJson(req);
+        const c = b.comment || {};
+        const comment = {
+          author: String(c.author || "viewer").slice(0, 60),
+          text: String(c.text || "").slice(0, 250),
+          avatar: typeof c.avatar === "string" ? c.avatar : "",
+          ts: Number(c.ts) || Date.now(),
+        };
+        if (!comment.text.trim()) return json(res, 400, { ok: false, error: "comment.text required" });
+        const out = await replayHandler(comment);
+        return json(res, out.ok ? 200 : 422, out);
       }
 
       if (route === "POST /admin/clear") {
