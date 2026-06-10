@@ -6,7 +6,7 @@
 // label map, so a ballot can't inject arbitrary text onto the stream.
 
 import { config } from "./config.js";
-import { automation } from "./automations.js";
+import { automation, emitAutomation } from "./automations.js";
 
 // must stay in sync with the scene's THEMES (packages/streamer/scene/scene.js)
 const THEMES = [
@@ -123,6 +123,7 @@ export function createVotes({ postMutate, log = () => {} }) {
     if (automation("voteWin").enabled) {
       setTimeout(() => postMutate({ action: "transitionTheme", params: { theme: winner.key, duration: 2.5 } }).catch(() => {}), 1500);
     }
+    emitAutomation("vote_win", { theme: winner.key, count: winner.votes });
   }
 
   function cast(author, theme) {

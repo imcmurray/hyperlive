@@ -5,6 +5,7 @@
 //   2. "The room noticed you": a viewer's FIRST comment triggers a warm,
 //      named welcome glow — you arrive and the world acknowledges you.
 
+import { emitAutomation } from "./automations.js";
 const EMOJI_REACT = [
   { kind: "fire", emojis: ["🔥", "⚡", "🌶", "🌶️"] },
   { kind: "love", emojis: ["❤", "❤️", "🥰", "😍", "💖", "💕", "♥️", "🩷", "💗"] },
@@ -13,6 +14,7 @@ const EMOJI_REACT = [
   { kind: "wow", emojis: ["😮", "😲", "🤯", "🙀", "‼", "‼️"] },
   { kind: "calm", emojis: ["🌙", "😌", "🍃", "🌊", "💤"] },
 ];
+
 
 export function createReactions({ postMutate, log = () => {}, perReactionMs = 700, welcome = true } = {}) {
   const seen = new Set();   // authors who have chatted before (first-time = welcome)
@@ -32,10 +34,13 @@ export function createReactions({ postMutate, log = () => {}, perReactionMs = 70
     // `welcome` is a provider fn: the dashboard can disable it or swap the
     // animation; a plain boolean keeps the old behavior)
     const auto = typeof welcome === "function" ? welcome() : { enabled: !!welcome, style: "welcome-pop" };
-    if (auto.enabled && !seen.has(author)) {
-      seen.add(author);
-      const kind = auto.style === "sparkle" ? "sparkle" : "welcome";
-      try { await postMutate({ action: "react", params: { kind, who: author, avatar: comment.avatar || "" } }); fired.push("welcome"); log(`  ♥ WELCOME ${author}`); } catch {}
+    if (!seen.has(author)) {
+      seen.add(author); // first-timers are tracked even when the builtin is off
+      emitAutomation("first_message", { who: author });
+      if (auto.enabled) {
+        const kind = auto.style === "sparkle" ? "sparkle" : "welcome";
+        try { await postMutate({ action: "react", params: { kind, who: author, avatar: comment.avatar || "" } }); fired.push("welcome"); log(`  ♥ WELCOME ${author}`); } catch {}
+      }
     }
 
     // 2) emoji reaction (rate-limited globally so it stays delightful, not chaotic)

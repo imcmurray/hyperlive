@@ -205,8 +205,13 @@
 
   /* automations view */
   .arow {
-    display: grid; grid-template-columns: 1fr 180px 90px; gap: 12px;
+    display: grid; grid-template-columns: 1fr 170px 44px 90px; gap: 12px;
     padding: 12px 14px; align-items: center; border-bottom: 1px solid #131913;
+  }
+  .arow .adesc b { color: var(--cyan); font-weight: 400; }
+  #autos-list select {
+    background: #0c0f0c; border: 1px solid var(--line); color: var(--txt);
+    font: 11px var(--mono); padding: 5px 7px; border-radius: 3px;
   }
   .arow .alabel { color: #cfe8cf; font-size: 14px; }
   .arow .adesc { color: var(--dim); font-size: 11px; margin-top: 2px; }
@@ -677,8 +682,10 @@
 
   // click the thumbnail → pop-out live player (MJPEG stream of the broadcast
   // frames). Clearing src on close drops the connection server-side.
-  const liveModal = $("#live-modal"), liveImg = $("#live-img");
-  const openLive = () => { liveImg.src = "/admin/monitor.mjpeg?t=" + Date.now(); liveModal.dataset.open = "true"; };
+  const liveModal = $("#live-modal"), liveImg = $("#live-img"), liveCap = $("#live-cap");
+  const openStream = (src, capHtml) => { liveCap.innerHTML = capHtml; liveImg.src = src + "?t=" + Date.now(); liveModal.dataset.open = "true"; };
+  const openLive = () => openStream("/admin/monitor.mjpeg", '<b>●</b> LIVE MONITOR — the broadcast’s own frames, video only · click or ESC to close');
+  const openPreviewTwin = () => openStream("/admin/preview.mjpeg", '<span style="color:var(--cyan)">◌</span> OFF-AIR PREVIEW — a twin of the scene, NOT the broadcast · click or ESC to close');
   const closeLive = () => { liveModal.dataset.open = "false"; liveImg.src = ""; };
   monitor.addEventListener("click", openLive);
   liveModal.addEventListener("click", closeLive);
@@ -721,26 +728,84 @@
   $("#v-users").addEventListener("click", () => setView("users"));
   $("#v-autos").addEventListener("click", () => setView("autos"));
 
-  // ---- AUTOMATIONS view: event → pre-built animation bindings ----
+  // ---- AUTOMATIONS view: event → animation bindings (builtin + custom) ----
   async function loadAutos() {
     const r = await api("/admin/automations").catch(() => null);
     if (!r?.ok || view !== "autos") return;
-    $("#autos-list").innerHTML = r.automations.map((a) => `
+    const builtinRows = r.builtins.map((a) => `
       <div class="arow" data-key="${esc(a.key)}">
         <div><div class="alabel">${esc(a.label)}</div><div class="adesc">${esc(a.desc)}</div></div>
         <select data-style="${esc(a.key)}" ${a.styles.length < 2 ? "disabled" : ""}>
           ${a.styles.map((s) => `<option value="${esc(s)}" ${s === a.style ? "selected" : ""}>${esc(s)}</option>`).join("")}
         </select>
+        <button class="btn" data-prev-key="${esc(a.key)}" title="fire it on the stage with sample data — watch the monitor">▶</button>
         <div class="atoggle ${a.enabled ? "on" : "off"}" data-toggle="${esc(a.key)}">${a.enabled ? "● ON" : "○ OFF"}</div>
       </div>`).join("");
+    const customRows = r.custom.map((c) => `
+      <div class="arow" data-id="${esc(c.id)}">
+        <div><div class="alabel">${esc(c.label)}</div><div class="adesc">on <b>${esc(c.on)}</b> → ${esc(c.action)} ${esc(JSON.stringify(c.params))}</div></div>
+        <button class="btn danger" data-del="${esc(c.id)}">✕ DELETE</button>
+        <button class="btn" data-prev-id="${esc(c.id)}" title="fire it on the stage with sample data">▶</button>
+        <div class="atoggle ${c.enabled ? "on" : "off"}" data-ctoggle="${esc(c.id)}">${c.enabled ? "● ON" : "○ OFF"}</div>
+      </div>`).join("");
+    $("#autos-list").innerHTML = `
+      <h2>BUILT-IN RECOGNITIONS</h2>${builtinRows}
+      <h2>CUSTOM — ADD YOUR OWN</h2>${customRows || ""}
+      <div class="arow" id="auto-add" style="grid-template-columns:1fr">
+        <div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <input id="ca-label" placeholder="name…" style="flex:1;min-width:120px;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px">
+            <span class="t">on</span>
+            <select id="ca-on">${Object.entries(r.events).map(([k, d]) => `<option value="${esc(k)}" title="${esc(d)}">${esc(k)}</option>`).join("")}</select>
+            <span class="t">→</span>
+            <select id="ca-action">${r.actions.map((a) => `<option>${esc(a)}</option>`).join("")}</select>
+            <button class="btn" id="ca-add">+ ADD</button>
+          </div>
+          <textarea id="ca-params" placeholder='params JSON — placeholders fill from the event: {"text":"{who} sent {amount}!","tier":"large"}' style="width:100%;height:54px;margin-top:6px;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px;border-radius:3px;resize:vertical"></textarea>
+          <div class="adesc">placeholders: {who} {text} {amount} {theme} {count} · fires through the same allowlisted scene actions as everything else</div>
+        </div>
+      </div>`;
   }
   $("#autos-list").addEventListener("click", async (ev) => {
+    const prevK = ev.target.closest("[data-prev-key]");
+    const prevI = ev.target.closest("[data-prev-id]");
+    if (prevK || prevI) {
+      // open the off-air twin first (its stream boots the twin), then fire —
+      // nothing here ever touches the broadcast
+      openPreviewTwin();
+      const body = prevK ? { key: prevK.dataset.prevKey } : { id: prevI.dataset.prevId };
+      const r = await api("/admin/automations/preview", body);
+      toast(r.ok ? `previewing ${r.fired} (off-air)` : `preview failed: ${r.error || "?"}`);
+      if (!r.ok) closeLive();
+      return;
+    }
+    const del = ev.target.closest("[data-del]");
+    if (del) {
+      if (!confirm("Delete this custom automation?")) return;
+      await api("/admin/automations/custom", { id: del.dataset.del, remove: true });
+      toast("deleted");
+      return loadAutos();
+    }
+    const ct = ev.target.closest("[data-ctoggle]");
+    if (ct) {
+      await api("/admin/automations/custom", { id: ct.dataset.ctoggle, enabled: !ct.classList.contains("on") });
+      return loadAutos();
+    }
     const t = ev.target.closest("[data-toggle]");
-    if (!t) return;
-    const on = t.classList.contains("on");
-    const r = await api("/admin/automations", { key: t.dataset.toggle, enabled: !on });
-    toast(r.ok ? `${t.dataset.toggle}: ${!on ? "on" : "off"}` : `failed: ${r.error || "?"}`);
-    loadAutos();
+    if (t) {
+      const on = t.classList.contains("on");
+      const r = await api("/admin/automations", { key: t.dataset.toggle, enabled: !on });
+      toast(r.ok ? `${t.dataset.toggle}: ${!on ? "on" : "off"}` : `failed: ${r.error || "?"}`);
+      return loadAutos();
+    }
+    if (ev.target.closest("#ca-add")) {
+      let params = {};
+      const raw = $("#ca-params").value.trim();
+      if (raw) { try { params = JSON.parse(raw); } catch { return toast("params: invalid JSON"); } }
+      const r = await api("/admin/automations/custom", { label: $("#ca-label").value.trim(), on: $("#ca-on").value, action: $("#ca-action").value, params });
+      toast(r.ok ? `added: ${r.automation.label}` : `failed: ${r.error || "?"}`);
+      if (r.ok) loadAutos();
+    }
   });
   $("#autos-list").addEventListener("change", async (ev) => {
     const s = ev.target.closest("select[data-style]");

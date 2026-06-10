@@ -11,7 +11,7 @@ import { saveJson } from "./state.js";
 import { getAccessToken } from "./youtube-auth.js";
 import { discoverActiveBroadcast } from "./youtube.js";
 import { bill, unitsSpent, loadUsage } from "./quota.js";
-import { automation } from "./automations.js";
+import { automation, emitAutomation } from "./automations.js";
 
 const STATE_FILE = process.env.YT_LIKES_FILE || "./state/yt-likes.json";
 
@@ -84,6 +84,7 @@ export function createStreamLikes({ postMutate, log = () => {} }) {
         await postMutate({ action: "addShoutout", params: { tier: "large", who: "STREAM ❤", text: `${m.toLocaleString()} likes — thank you! 🎉` } }).catch(() => {});
         await postMutate({ action: "burst", params: { intensity: 0.7 } }).catch(() => {});
       }
+      emitAutomation("milestone", { count: m.toLocaleString() });
     }
     await saveState();
   }

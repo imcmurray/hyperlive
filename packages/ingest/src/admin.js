@@ -19,7 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { ban, unban, mute, unmute, listBans, listMutes, isBanned, isMuted } from "./bans.js";
-import { listAutomations, setAutomation } from "./automations.js";
+import { listAutomations, setAutomation, addCustom, updateCustom, buildPreviewDirectives } from "./automations.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DASH_HTML = path.resolve(__dirname, "../../dashboard/index.html");
@@ -179,13 +179,14 @@ export function startAdmin({ log = console.log } = {}) {
         });
       }
 
-      // live MJPEG monitor: stream the broadcast frames through (the pop-out
-      // player). Tunneled mods still only need :8090.
-      if (route === "GET /admin/monitor.mjpeg") {
+      // live MJPEG monitor / off-air preview twin: stream frames through (the
+      // pop-out players). Tunneled mods still only need :8090.
+      if (route === "GET /admin/monitor.mjpeg" || route === "GET /admin/preview.mjpeg") {
+        const upstream = url.pathname.endsWith("preview.mjpeg") ? "preview.mjpeg" : "monitor.mjpeg";
         const ctrl = new AbortController();
         req.on("close", () => ctrl.abort());
         try {
-          const up = await fetch(`${config.controlBase}/monitor.mjpeg`, { signal: ctrl.signal });
+          const up = await fetch(`${config.controlBase}/${upstream}`, { signal: ctrl.signal });
           if (!up.ok || !up.body) { res.writeHead(503); return res.end(); }
           res.writeHead(200, { "content-type": up.headers.get("content-type") || "multipart/x-mixed-replace", "cache-control": "no-store" });
           for await (const chunk of up.body) {
@@ -269,13 +270,40 @@ export function startAdmin({ log = console.log } = {}) {
 
       // ---- automations: event → pre-built animation bindings ----
       if (route === "GET /admin/automations") {
-        return json(res, 200, { ok: true, automations: listAutomations() });
+        return json(res, 200, { ok: true, ...listAutomations() });
       }
       if (route === "POST /admin/automations") {
         const b = await readJson(req);
         const out = await setAutomation(String(b.key || ""), { enabled: b.enabled, style: b.style });
         if (out.ok) publishFeed({ stage: "automation", comment: { author: "operator", text: `${b.key}: ${out.enabled ? "on" : "off"}${out.style ? " · " + out.style : ""}` } });
         return json(res, out.ok ? 200 : 400, out);
+      }
+      // custom automations: add / toggle / delete
+      if (route === "POST /admin/automations/custom") {
+        const b = await readJson(req);
+        let out;
+        if (b.id) out = await updateCustom(String(b.id), { enabled: b.enabled, remove: b.remove === true });
+        else out = await addCustom({ label: b.label, on: b.on, action: b.action, params: b.params });
+        if (out.ok) publishFeed({ stage: "automation", comment: { author: "operator", text: b.id ? `custom ${b.id} ${b.remove ? "removed" : b.enabled ? "on" : "off"}` : `custom added: ${b.on} → ${b.action}` } });
+        return json(res, out.ok ? 200 : 400, out);
+      }
+      // preview: fire the automation with sample data — into the OFF-AIR scene
+      // twin by default (zero broadcast risk); {live:true} targets the stage
+      if (route === "POST /admin/automations/preview") {
+        const b = await readJson(req);
+        const built = buildPreviewDirectives({ key: b.key, id: b.id });
+        if (!built.ok) return json(res, 400, built);
+        const target = b.live === true ? `${config.controlBase}/mutate` : `${config.controlBase}/preview/mutate`;
+        let fired = [];
+        for (const d of built.directives) {
+          const r = await fetch(target, {
+            method: "POST", signal: AbortSignal.timeout(20000), // twin cold-start takes a few seconds
+            headers: { "content-type": "application/json" }, body: JSON.stringify(d),
+          }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+          if (r.ok === false) return json(res, 502, { ok: false, error: r.error || "preview target rejected" });
+          fired.push(d.action);
+        }
+        return json(res, 200, { ok: true, fired: fired.join("+"), offair: b.live !== true });
       }
 
       // ---- user directory: everyone who has interacted this session ----

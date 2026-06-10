@@ -15,7 +15,7 @@ import { createVotes } from "./votes.js";
 import { createMusic, parseSunoShare, isLikeCommand, hasHeart } from "./music.js";
 import { authorCard, parseCardCommand } from "./card-author.js";
 import { isBanned, isMuted, loadBans } from "./bans.js";
-import { automation, loadAutomations } from "./automations.js";
+import { automation, loadAutomations, setAutomationPoster, emitAutomation, superchatDirective } from "./automations.js";
 import { startAdmin, publishFeed, enqueuePending, previewMarkup, setVitalsProvider, setReplayHandler } from "./admin.js";
 import { unitsSpent } from "./quota.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
@@ -114,19 +114,18 @@ async function handle(comment) {
   let scRecognized = false;
   if (comment.superchat) {
     const auto = automation("superchat");
+    const tier = superchatTier(comment.superchat);
     if (auto.enabled) {
       scRecognized = true;
-      const tier = superchatTier(comment.superchat);
-      const directive = auto.style === "shoutout"
-        ? { action: "addShoutout", params: { who: comment.author, text: comment.text, tier, avatar: comment.avatar || "" } }
-        : auto.style === "burst-only"
-          ? { action: "burst", params: { intensity: tier === "large" ? 0.8 : 0.5 } }
-          : { action: "superchatCard", params: { who: comment.author, text: comment.text, amount: comment.superchat.amount || "", tier, avatar: comment.avatar || "" } };
+      const directive = superchatDirective(auto.style, { who: comment.author, text: comment.text, amount: comment.superchat.amount || "", tier });
+      if (directive.action === "superchatCard" || directive.action === "addShoutout") directive.params.avatar = comment.avatar || "";
       await postMutate(directive).catch(() => {});
       reportDelay(comment);
       console.log(`  ★ SUPERCHAT ${comment.author} ${comment.superchat.amount || ""} (${tier}, ${auto.style})`);
       await audit({ stage: "superchat", comment, tier, style: auto.style });
     }
+    // custom automations on this event fire regardless of the builtin
+    emitAutomation("superchat", { who: comment.author, text: comment.text, amount: comment.superchat.amount || "" });
   }
 
   // Music: a Suno share link is CONSUMED as a queue request; "!like" is CONSUMED
@@ -251,6 +250,7 @@ async function main() {
   console.log(`[ingest] director: ${director.engine}`);
   console.log(`[ingest] moderation: rate=${config.ratePerMin}/min, blocklist=on, llm=${config.moderationLLM}`);
   await loadAutomations();
+  setAutomationPoster(postMutate); // custom automations + previews fire through the normal bus
   const banCount = await loadBans();
   if (banCount) console.log(`[ingest] ban list: ${banCount} entr${banCount === 1 ? "y" : "ies"}`);
   setVitalsProvider(() => ({

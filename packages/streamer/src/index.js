@@ -112,6 +112,36 @@ async function evalScene(action, params = {}) {
 // and every network request aborted, matching the sandbox+CSP the scene will
 // impose; CSS animations still run, so the screenshot is a real frame of what
 // would air.
+// Off-air SCENE TWIN: a second full copy of the scene in a page the screencast
+// never captures — automation previews fire here so test animations are never
+// broadcast. Lazy-created, auto-closed after a minute idle (the full scene at
+// 30fps GSAP isn't free).
+let previewScenePromise = null;
+let previewSceneClients = 0;
+let previewSceneIdle = null;
+function ensurePreviewScene() {
+  if (!previewScenePromise) {
+    previewScenePromise = (async () => {
+      const p = await browser.newPage();
+      await p.setViewport({ width: 1280, height: 720 });
+      await p.goto(`http://localhost:${config.controlPort}/`, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await p.waitForFunction("window.__sceneReady === true", { timeout: 15000 }).catch(() => {});
+      console.log("[preview-scene] off-air scene twin up");
+      return p;
+    })().catch((e) => { previewScenePromise = null; throw e; });
+  }
+  return previewScenePromise;
+}
+function schedulePreviewSceneClose() {
+  clearTimeout(previewSceneIdle);
+  previewSceneIdle = setTimeout(async () => {
+    if (previewSceneClients > 0 || !previewScenePromise) return;
+    const p = await previewScenePromise.catch(() => null);
+    previewScenePromise = null;
+    if (p && !p.isClosed()) { p.close().catch(() => {}); console.log("[preview-scene] closed (idle)"); }
+  }, 60000);
+}
+
 let previewPage = null;
 async function renderPreview(html, w, h) {
   if (!previewPage || previewPage.isClosed()) {
@@ -314,6 +344,47 @@ function buildControlApp() {
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e.message) });
     }
+  });
+
+  // --- off-air preview twin: apply a directive + watch it, zero broadcast risk ---
+  app.post("/preview/mutate", async (req, res) => {
+    try {
+      const action = String(req.body?.action || "");
+      if (!ALLOWED_ACTIONS.has(action)) return res.status(400).json({ ok: false, error: `disallowed action: ${action}` });
+      const params = req.body?.params && typeof req.body.params === "object" ? req.body.params : {};
+      const p = await ensurePreviewScene();
+      const out = await p.evaluate((a, pr) => {
+        if (!window.SceneAPI || typeof window.SceneAPI[a] !== "function") return { ok: false, error: "twin not ready" };
+        try { return { ok: true, result: window.SceneAPI[a](pr) }; } catch (e) { return { ok: false, error: String(e && e.message) }; }
+      }, action, params);
+      schedulePreviewSceneClose();
+      res.json(out);
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message) });
+    }
+  });
+  app.get("/preview.mjpeg", async (req, res) => {
+    let p;
+    try { p = await ensurePreviewScene(); }
+    catch { return res.status(503).json({ ok: false, error: "preview scene failed to start" }); }
+    previewSceneClients++;
+    res.writeHead(200, { "content-type": "multipart/x-mixed-replace; boundary=hlframe", "cache-control": "no-store" });
+    let alive = true;
+    req.on("close", () => { alive = false; });
+    try {
+      while (alive && !stopping && !p.isClosed()) {
+        const buf = Buffer.from(await p.screenshot({ type: "jpeg", quality: 65 }));
+        if (res.writableLength < 4 * 1024 * 1024) {
+          res.write(`--hlframe\r\ncontent-type: image/jpeg\r\ncontent-length: ${buf.length}\r\n\r\n`);
+          res.write(buf);
+          res.write("\r\n");
+        }
+        await new Promise((r) => setTimeout(r, 160)); // ~6fps — preview, not broadcast
+      }
+    } catch { /* twin closed / client gone */ }
+    previewSceneClients--;
+    schedulePreviewSceneClose();
+    res.end();
   });
 
   // live monitor: MJPEG stream of the scene — on the GPU path these are the
