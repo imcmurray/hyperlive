@@ -48,6 +48,7 @@ let dj = null;        // auto-DJ daemon (music)
 let meter = null;     // audio level meter (eq bars)
 let renderMode = "?"; // gpu | cpu
 let gpuRenderer = "";
+let stopping = false; // true during graceful shutdown (silences the watchdog)
 // current show phase, tracked from the directives that drive it (see
 // applyDirective): "intro" (pre-show) | "countdown" | "onair" | "outro".
 // Defaults to onair; set to intro on boot when STANDBY_ON_BOOT is on.
@@ -382,6 +383,34 @@ async function main() {
   // tell the scene its mode + target fps (so motion fps == capture fps)
   await applyRenderMode(renderMode, eff.fps);
 
+  // WATCHDOG: a crashed Chromium doesn't kill ffmpeg — the pump just duplicates
+  // the last frame forever, so the stream freezes while /health still says ok.
+  // Exit instead and let `restart: unless-stopped` bring the pipeline back
+  // clean. Registered only now, AFTER the GPU-probe fallback may have closed
+  // and relaunched the browser (that close is intentional, not a crash).
+  browser.on("disconnected", () => {
+    if (stopping) return;
+    console.error("[watchdog] browser disconnected — exiting for a clean container restart");
+    process.exit(1);
+  });
+  // and a liveness ping: a hung/crashed renderer can leave the browser process
+  // up but the page frozen. NB: a quiet screencast is NOT a crash signal (static
+  // scenes legitimately stop repainting) — only an unresponsive page is.
+  let pingFails = 0;
+  setInterval(async () => {
+    if (stopping) return;
+    const ok = await Promise.race([
+      page.evaluate("1").then(() => true, () => false),
+      new Promise((r) => setTimeout(() => r(false), 10000)),
+    ]);
+    pingFails = ok ? 0 : pingFails + 1;
+    if (!ok) console.warn(`[watchdog] scene ping failed (${pingFails}/3)`);
+    if (pingFails >= 3) {
+      console.error("[watchdog] scene page unresponsive ~90s — exiting for a clean container restart");
+      process.exit(1);
+    }
+  }, 30000).unref();
+
   // optionally come up on the "starting shortly" standby screen
   if (config.standbyOnBoot) await applyDirective({ action: "setStandby", params: { mode: "intro" } }).catch(() => {});
 
@@ -451,6 +480,7 @@ async function main() {
   // graceful shutdown
   const shutdown = async (sig) => {
     console.log(`\n[shutdown] ${sig} received`);
+    stopping = true;
     if (meter) meter.stop();
     if (dj) dj.stop();
     if (streamer) streamer.stop();

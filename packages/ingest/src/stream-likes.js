@@ -5,12 +5,12 @@
 // (likeCount absent) are simply skipped. Quota-aware (videos.list ≈ 1 unit) and
 // it shares the chat poller's daily counter via quota.js.
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { config } from "./config.js";
+import { saveJson } from "./state.js";
 import { getAccessToken } from "./youtube-auth.js";
 import { discoverActiveBroadcast } from "./youtube.js";
-import { bill, unitsSpent } from "./quota.js";
+import { bill, unitsSpent, loadUsage } from "./quota.js";
 
 const STATE_FILE = process.env.YT_LIKES_FILE || "./state/yt-likes.json";
 
@@ -46,7 +46,7 @@ export function createStreamLikes({ postMutate, log = () => {} }) {
     } catch { /* none yet */ }
   }
   async function saveState() {
-    try { await mkdir(path.dirname(STATE_FILE), { recursive: true }); await writeFile(STATE_FILE, JSON.stringify({ videoId, likeCount: lastCount, lastMilestone })); } catch { /* non-fatal */ }
+    try { await saveJson(STATE_FILE, { videoId, likeCount: lastCount, lastMilestone }); } catch { /* non-fatal */ }
   }
 
   async function ensureVideoId(token) {
@@ -88,6 +88,7 @@ export function createStreamLikes({ postMutate, log = () => {} }) {
   return {
     async start() {
       await loadState();
+      await loadUsage(); // don't poll (and bill) before today's spend is known
       log(`[likes] stream-like milestones on — poll ${Math.round(config.streamLikesPollMs / 1000)}s (resuming past milestone ${lastMilestone})`);
       const loop = async () => {
         if (stopped) return;

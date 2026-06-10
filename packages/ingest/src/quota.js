@@ -4,8 +4,8 @@
 // stream-like poller bill against this single in-memory counter, so together
 // they never blow the daily cap.
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
+import { saveJson } from "./state.js";
 
 const USAGE_FILE = process.env.YT_USAGE_FILE || "./state/yt-usage.json";
 const pacificDate = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
@@ -27,9 +27,22 @@ export async function bill(units = 1) {
   await ensure();
   usage.units += units;
   usage.calls += 1;
-  try { await mkdir(path.dirname(USAGE_FILE), { recursive: true }); await writeFile(USAGE_FILE, JSON.stringify(usage)); } catch { /* non-fatal */ }
+  try { await saveJson(USAGE_FILE, usage); } catch { /* non-fatal */ }
   return usage.units;
 }
 
-export function unitsSpent() { return usage?.units || 0; }
+// date-aware: after the Pacific-midnight reset, yesterday's total reads as 0
+// even though nothing has billed yet today (pollers gate on this BEFORE billing)
+export function unitsSpent() { return usage && usage.date === pacificDate() ? usage.units : 0; }
 export async function loadUsage() { return ensure(); }
+
+// how long until YouTube's quota reset (midnight Pacific), with a 60s margin
+export function msUntilQuotaReset() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles", hour12: false,
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date());
+  const get = (t) => Number(parts.find((p) => p.type === t)?.value || 0);
+  const secsLeft = 24 * 3600 - ((get("hour") % 24) * 3600 + get("minute") * 60 + get("second"));
+  return secsLeft * 1000 + 60000;
+}

@@ -8,11 +8,11 @@
 // gap, no re-showing the backlog). YouTube's pageToken IS "everything after the
 // last message I saw"; the id log dedups across the resume boundary.
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { config } from "./config.js";
+import { saveJson } from "./state.js";
 import { getAccessToken } from "./youtube-auth.js";
-import { bill, unitsSpent, loadUsage } from "./quota.js";
+import { bill, unitsSpent, loadUsage, msUntilQuotaReset } from "./quota.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // NB: control/ is root-owned (the streamer container writes there), so the
@@ -26,9 +26,29 @@ async function loadCursor() {
 }
 async function saveCursor(liveChatId, pageToken, seen) {
   try {
-    await mkdir(path.dirname(CURSOR_FILE), { recursive: true });
-    await writeFile(CURSOR_FILE, JSON.stringify({ liveChatId, pageToken, seen: seen.slice(-300), ts: Date.now() }));
+    await saveJson(CURSOR_FILE, { liveChatId, pageToken, seen: seen.slice(-300), ts: Date.now() });
   } catch { /* non-fatal */ }
+}
+
+// getAccessToken throws on any network blip to Google — never let that kill the
+// 24/7 ingest. Retry with backoff; only a missing-config error is unrecoverable.
+async function getTokenWithRetry(force = false) {
+  for (let delay = 5000; ; delay = Math.min(delay * 2, 120000)) {
+    try { return await getAccessToken(force); }
+    catch (e) {
+      if (/YT_CLIENT_ID/.test(e.message)) throw e; // config missing — retrying won't help
+      console.error(`[youtube] token refresh failed: ${e.message} — retry ${delay / 1000}s`);
+      await sleep(delay);
+    }
+  }
+}
+
+// park until YouTube's quota reset (midnight Pacific), then carry on
+async function sleepUntilQuotaReset(what) {
+  const ms = msUntilQuotaReset();
+  console.log(`[youtube] quota cutoff: spent ${unitsSpent()}/${config.yt.quotaLimit} units today — pausing ${what} ~${Math.ceil(ms / 60000)}m until the Pacific-midnight reset`);
+  await sleep(ms);
+  console.log(`[youtube] quota reset — resuming ${what}`);
 }
 
 function toComment(item) {
@@ -65,6 +85,7 @@ export async function discoverActiveBroadcast(token) {
 async function resolveLiveChatId(token) {
   if (config.yt.liveChatId) return config.yt.liveChatId;
   for (;;) {
+    if (unitsSpent() >= config.yt.quotaLimit) { await sleepUntilQuotaReset("broadcast discovery"); token = await getTokenWithRetry(); }
     const b = await discoverActiveBroadcast(token).catch((e) => { console.error("[youtube] discover:", e.message); return { liveChatId: "" }; });
     if (b.liveChatId) return b.liveChatId;
     console.log("[youtube] no active broadcast yet — re-checking in 15s (start 'Go Live' on YouTube)");
@@ -73,7 +94,8 @@ async function resolveLiveChatId(token) {
 }
 
 export async function* youtubeSource() {
-  let token = await getAccessToken();
+  await loadUsage(); // before discovery, so its quota guard sees today's spend
+  let token = await getTokenWithRetry();
   let liveChatId = await resolveLiveChatId(token);
 
   // resume from the saved cursor if it's the SAME chat — so a restart continues
@@ -83,7 +105,6 @@ export async function* youtubeSource() {
   let pageToken = resuming ? saved.pageToken : "";
   let first = !resuming;                                  // skip backlog only on a fresh start
   const seen = new Set(resuming ? (saved.seen || []) : []);
-  await loadUsage();
   console.log(`[youtube] connected — liveChatId=${liveChatId.slice(0, 14)}…${resuming ? ` (resumed, ${seen.size} seen)` : ""} | quota ${unitsSpent()}/${config.yt.quotaLimit} units today`);
 
   let lastSave = 0;
@@ -100,14 +121,16 @@ export async function* youtubeSource() {
   let lastProbeAt = 0;
   let probeNext = false;
   for (;;) {
-    // SAFETY CUTOFF: stop polling before we exceed the daily quota (music +
-    // visuals keep running; restart the ingest after the Pacific-midnight reset)
+    // SAFETY CUTOFF: pause polling before we exceed the daily quota (music +
+    // visuals keep running), then resume after the Pacific-midnight reset.
+    // Hours of backlog accumulated during the pause — re-anchor at the live
+    // tail like a fresh start instead of replaying stale messages.
     if (unitsSpent() >= config.yt.quotaLimit) {
-      console.log(`[youtube] quota cutoff: spent ${unitsSpent()}/${config.yt.quotaLimit} units today — stopping chat polling. Restart after midnight Pacific.`);
-      return;
+      await sleepUntilQuotaReset("chat polling");
+      pageToken = ""; first = true;
     }
 
-    token = await getAccessToken();
+    token = await getTokenWithRetry();
 
     const probing = probeNext; probeNext = false; // a probe drops the token to re-anchor
     const url = new URL("https://www.googleapis.com/youtube/v3/liveChat/messages");
@@ -119,14 +142,14 @@ export async function* youtubeSource() {
     try {
       let res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       await bill(CHAT_UNITS); // a liveChatMessages.list call (~5 units)
-      if (res.status === 401) { token = await getAccessToken(true); res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } }); await bill(CHAT_UNITS); }
+      if (res.status === 401) { token = await getTokenWithRetry(true); res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } }); await bill(CHAT_UNITS); }
       if (res.status === 400 && pageToken) { // a stale/expired pageToken → start fresh
         console.log("[youtube] saved cursor rejected — starting fresh (skipping backlog)");
         pageToken = ""; first = true; continue;
       }
       if (res.status === 403 || res.status === 404) { // chat ended / broadcast over
         console.log(`[youtube] chat ${res.status} — broadcast ended; re-discovering active chat…`);
-        liveChatId = await resolveLiveChatId(await getAccessToken(true));
+        liveChatId = await resolveLiveChatId(await getTokenWithRetry(true));
         pageToken = ""; first = true; continue;
       }
       if (!res.ok) { console.error(`[youtube] poll http ${res.status} — retry 5s`); await sleep(5000); continue; }

@@ -52,6 +52,9 @@ export function createModerator() {
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
+        // comments are handled serially — never let one hung connection stall
+        // the whole pipeline for undici's ~5min default
+        signal: AbortSignal.timeout(8000),
         headers: {
           "content-type": "application/json",
           "x-api-key": config.anthropicKey,

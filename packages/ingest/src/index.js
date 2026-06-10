@@ -41,6 +41,7 @@ async function audit(entry) {
 async function postMutate(directive) {
   const res = await fetch(config.mutateUrl, {
     method: "POST",
+    signal: AbortSignal.timeout(5000), // local control plane — fail fast, don't stall the pipeline
     headers: { "content-type": "application/json" },
     body: JSON.stringify(directive),
   });
@@ -157,20 +158,24 @@ async function main() {
     ? createStreamLikes({ postMutate, log: console.log }) : null;
   if (streamLikes) streamLikes.start();
 
-  process.on("SIGINT", () => {
+  const shutdown = (label) => {
     if (moodEngine) moodEngine.stop();
     if (streamLikes) streamLikes.stop();
     votes.stop();
-    console.log(`\n[ingest] stopping. processed=${processed} applied=${applied} blocked=${blocked}`);
+    console.log(`\n[ingest] ${label}. processed=${processed} applied=${applied} blocked=${blocked}`);
     process.exit(0);
-  });
+  };
+  process.on("SIGINT", () => shutdown("stopping"));
+  process.on("SIGTERM", () => shutdown("stopping")); // live.sh stop sends SIGTERM
 
   for await (const comment of source) {
     await handle(comment);
     if (config.maxEvents && processed >= config.maxEvents) break;
   }
 
-  console.log(`\n[ingest] done. processed=${processed} applied=${applied} blocked=${blocked}`);
+  // the source ended (demo maxEvents or simulator drained) — stop the timers
+  // too, or the process lingers as a zombie that looks alive to live.sh status
+  shutdown("done");
 }
 
 main().catch((e) => {

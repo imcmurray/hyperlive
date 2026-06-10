@@ -100,9 +100,15 @@ function buildScreencastArgs(s) {
   ];
 }
 
+// if ffmpeg stops reading stdin (RTMP stall), Node buffers writes in memory
+// without bound — cap the buffer and DROP frames past it. Dropping is free
+// here: the pump re-sends the latest frame every tick anyway. ~8MB ≈ 2s of
+// frames at 30fps, plenty to ride out a hiccup without risking an OOM kill.
+const MAX_STDIN_BUFFER = 8 * 1024 * 1024;
+
 // generic supervisor: respawns ffmpeg on exit (reconnect)
 function supervise(label, argsFn, withStdin) {
-  let child = null, stopping = false, restarts = 0;
+  let child = null, stopping = false, restarts = 0, lastDropLog = 0;
   function spawnOnce() {
     if (stopping) return;
     console.log(`[${label}] starting → ${config.outputFile || config.rtmpUrl + "/<key>"} (${restarts} restarts)`);
@@ -118,7 +124,15 @@ function supervise(label, argsFn, withStdin) {
   }
   spawnOnce();
   return {
-    write(buf) { if (withStdin && child && child.stdin.writable) { try { child.stdin.write(buf); } catch {} } },
+    write(buf) {
+      if (!withStdin || !child || !child.stdin.writable) return;
+      if (child.stdin.writableLength > MAX_STDIN_BUFFER) {
+        const now = Date.now();
+        if (now - lastDropLog > 5000) { lastDropLog = now; console.error(`[${label}] stdin backed up (${Math.round(child.stdin.writableLength / 1048576)}MB) — dropping frames`); }
+        return;
+      }
+      try { child.stdin.write(buf); } catch {}
+    },
     isUp: () => !!child && child.exitCode === null,
     restarts: () => restarts,
     stop() { stopping = true; if (child) child.kill("SIGTERM"); },

@@ -90,6 +90,7 @@ async function llmMood(snap, last) {
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
+      signal: AbortSignal.timeout(8000), // a hung call would freeze the mood loop
       headers: { "content-type": "application/json", "x-api-key": config.anthropicKey, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
         model: config.anthropicModel, max_tokens: 160,

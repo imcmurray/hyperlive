@@ -8,7 +8,8 @@
 // re-resolved once (the CDN url may have gone stale) before we move on.
 
 import { spawn } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { saveJson } from "../state.js";
 import { resolveSuno } from "./resolve.js";
 import { ROTATION } from "./rotation.js";
 import { INTRO } from "./intro.js";
@@ -43,7 +44,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
   let updateTimer = null;
 
   async function saveQueue() {
-    try { await writeFile(QUEUE_FILE, JSON.stringify(queue)); } catch { /* non-fatal */ }
+    try { await saveJson(QUEUE_FILE, queue); } catch { /* non-fatal */ }
   }
   async function loadSongLikes() {
     try {
@@ -61,7 +62,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
       songLikesTimer = null;
       const obj = {};
       for (const [share, set] of songLikes) obj[share] = [...set];
-      try { await writeFile(SONG_LIKES_FILE, JSON.stringify(obj)); } catch { /* non-fatal */ }
+      try { await saveJson(SONG_LIKES_FILE, obj); } catch { /* non-fatal */ }
     }, 1000);
   }
   // the persistent liker set for a track (created on first play), so likes added
@@ -160,8 +161,31 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
     return { ...t, who: "", source: "rotation" };
   }
 
+  // nothing playable right now (rotation didn't resolve at boot and the queue
+  // drained). Go quiet and retry on a timer — re-resolving the rotation if it's
+  // empty — so a Suno outage heals itself instead of leaving a silent stream.
+  // (Also the guard against spawning mpv with an empty url, which exits in
+  // milliseconds and would otherwise hot-loop the player.)
+  let idleTimer = null;
+  const IDLE_RETRY_MS = 15000;
+  function idleRetry() {
+    if (current) { current = null; pushUpdate(); }
+    if (idleTimer || stopped) return;
+    idleTimer = setTimeout(async () => {
+      idleTimer = null;
+      if (stopped) return;
+      if (!rotation.length && ROTATION.length) {
+        log("[dj] rotation empty — re-resolving…");
+        rotation.push(...(await resolveAll(ROTATION)));
+        if (rotation.length) log(`[dj] rotation recovered: ${rotation.length}/${ROTATION.length} tracks`);
+      }
+      play(nextTrack());
+    }, IDLE_RETRY_MS);
+  }
+
   function play(track) {
     if (stopped) return;
+    if (!track || !track.audioUrl) return idleRetry();
     // restore this song's accumulated likers so the heart count resumes where it
     // left off (and the same author can't double-like across plays)
     current = { ...track, likes: likeSetFor(track) };
@@ -197,7 +221,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
         // still bad → small delay so a broken track can't hot-loop the player
         await new Promise((res) => setTimeout(res, 800));
       }
-      play(nextTrack() || { title: "", artist: "", audioUrl: "", who: "", source: "" });
+      play(nextTrack());
     });
   }
 
@@ -216,7 +240,8 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
       const saved = await loadQueue();
       if (saved.length) { queue.push(...saved); log(`[dj] restored ${saved.length} queued request(s)`); }
       const first = nextTrack();
-      if (first) play(first); else log("[dj] no playable rotation tracks — idle");
+      if (first) play(first);
+      else { log(`[dj] no playable tracks yet — idle, retrying every ${IDLE_RETRY_MS / 1000}s`); idleRetry(); }
     },
 
     // add a requested Suno share link to the queue (resolved + validated here)
@@ -267,7 +292,7 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
         fade(0, 700);
         setTimeout(() => { skipping = true; fadeInPending = true; if (player) player.kill("SIGTERM"); }, 720);
       } else if (!stopped) {
-        play(nextTrack() || { title: "", artist: "", audioUrl: "", who: "", source: "" });
+        play(nextTrack());
       }
       pushUpdate();
       return { ok: true, mode, changed: true };
@@ -276,6 +301,6 @@ export function createDJ({ onUpdate = () => {}, log = () => {}, mode: initialMod
     artists: () => Array.from(liveArtists), // unique creators played since on air (outro credits)
     status,
     queueInfo,                  // { current, queue:[requests], rotation:[house] }
-    stop() { stopped = true; if (fadeTimer) clearInterval(fadeTimer); if (songLikesTimer) clearTimeout(songLikesTimer); if (player) player.kill("SIGKILL"); },
+    stop() { stopped = true; if (fadeTimer) clearInterval(fadeTimer); if (songLikesTimer) clearTimeout(songLikesTimer); if (idleTimer) clearTimeout(idleTimer); if (player) player.kill("SIGKILL"); },
   };
 }

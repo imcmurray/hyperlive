@@ -641,9 +641,14 @@
   }
 
   // ---- the crossfade ------------------------------------------------------
+  // a crossfade requested mid-crossfade (e.g. a vote winner landing during a
+  // showcase transition) is queued and applied when the current one completes —
+  // dropping it would mean "X wins!" followed by… nothing
+  let pendingTheme = null;
   function crossfade(theme, duration) {
     if (!THEMES.includes(theme)) theme = currentTheme;
-    if (transitioning || theme === currentTheme) return { theme: currentTheme, busy: transitioning };
+    if (theme === currentTheme && !transitioning) return { theme: currentTheme };
+    if (transitioning) { pendingTheme = { theme, duration }; return { theme: currentTheme, busy: true, queued: theme }; }
     const dur = clampNum(duration, 0.3, 4, 1.2);
 
     const incoming = layers[1 - active];
@@ -681,6 +686,7 @@
         currentTheme = theme;
         transitioning = false;
         retint();
+        if (pendingTheme) { const p = pendingTheme; pendingTheme = null; crossfade(p.theme, p.duration); }
       },
     });
     tl.to(incoming, { opacity: 1, scale: 1, duration: dur, ease: "power2.inOut" }, 0);

@@ -71,7 +71,7 @@ start() {
     MUTATE_URL="$MUTATE_URL" \
     MOOD_TICK_MS="$MOOD_TICK_MS" \
     YT_QUOTA_LIMIT="$QUOTA_LIMIT" \
-    node "$ENTRY" > "$LOG" 2>&1 &
+    node "$ENTRY" >> "$LOG" 2>&1 &   # append — don't wipe the evidence of a prior crash
   disown
   sleep 4
   status

@@ -134,6 +134,7 @@ export async function llmIntent(comment) {
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
+      signal: AbortSignal.timeout(8000), // serial pipeline — don't stall on a hung connection
       headers: {
         "content-type": "application/json",
         "x-api-key": config.anthropicKey,

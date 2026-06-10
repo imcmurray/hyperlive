@@ -81,7 +81,7 @@ while true; do
       m "effect ${fx}=on" "{\"action\":\"setEffect\",\"params\":{\"effect\":\"${fx}\",\"on\":true,\"duration\":${du}}}"
     fi
 
-  elif [ "$r" -lt 80 ]; then                       # 25% — shoutout
+  elif [ "$r" -lt 70 ]; then                       # 15% — shoutout
     t=$(pick "${TIERS[@]}"); w=$(pick "${WHO[@]}"); g=$(pick "${MSG[@]}")
     m "shoutout: ${t}" "{\"action\":\"addShoutout\",\"params\":{\"who\":\"${w}\",\"text\":\"${g}\",\"tier\":\"${t}\"}}"
 

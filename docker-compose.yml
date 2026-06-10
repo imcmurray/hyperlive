@@ -16,7 +16,9 @@ services:
     group_add:
       - "987"
     ports:
-      - "${CONTROL_PORT:-8080}:${CONTROL_PORT:-8080}"
+      # loopback only — the control API (/mutate, /onair, /music/*) has no auth,
+      # and everything that calls it (ingest, live.sh) is on this host
+      - "127.0.0.1:${CONTROL_PORT:-8080}:${CONTROL_PORT:-8080}"
     volumes:
       # write JSON here to drive the live scene (file-watch trigger)
       - ./control:/app/control
