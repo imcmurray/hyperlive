@@ -175,6 +175,9 @@ function buildControlApp() {
       const who = String(req.body?.who || "");
       const source = String(req.body?.source || "operator"); // ingest sends "viewer"
       const seconds = Number(req.body?.seconds) || undefined;
+      // preview: run the whole gauntlet OFF-AIR and return the screenshot +
+      // vision verdict instead of airing — the moderator hold queue reviews it
+      const preview = req.body?.preview === true;
       const max = kind === "card" ? 16384 : 65536;
       if (!html.trim() || html.length > max) return res.status(400).json({ ok: false, error: `html required, <= ${max} bytes` });
       // belt-and-braces: the iframe sandbox + CSP block all of these anyway
@@ -182,20 +185,26 @@ function buildControlApp() {
       if (/<\s*(script|iframe|object|embed|link|meta|base|form)\b|\bon[a-z]+\s*=|url\s*\(/i.test(html)) {
         return res.status(400).json({ ok: false, error: "disallowed construct" });
       }
-      if (source !== "operator" && !visionEnabled) {
+      // a preview airs nothing, so the no-key 403 and show-phase 409 don't
+      // apply — a human reviews ahead of air time
+      if (!preview && source !== "operator" && !visionEnabled) {
         return res.status(403).json({ ok: false, error: "viewer-sourced markup needs ANTHROPIC_API_KEY (vision gate)" });
       }
-      if (kind === "takeover" && showState !== "onair") {
+      if (!preview && kind === "takeover" && showState !== "onair") {
         return res.status(409).json({ ok: false, error: `show is in '${showState}' — takeovers only while onair` });
       }
       const [w, h] = kind === "card" ? [360, 250] : [1280, 720];
       const shot = await renderPreview(html, w, h);
+      let vision = null;
       if (visionEnabled) {
-        const v = await visionCheck(shot, kind === "card" ? `a ${w}x${h} viewer card` : "a full-stage takeover segment");
-        if (!v.safe) {
-          console.log(`[${kind}] REJECTED by vision gate (${v.reason}) — from ${who || source}`);
-          return res.status(422).json({ ok: false, error: `vision gate: ${v.reason}` });
+        vision = await visionCheck(shot, kind === "card" ? `a ${w}x${h} viewer card` : "a full-stage takeover segment");
+        if (!preview && !vision.safe) {
+          console.log(`[${kind}] REJECTED by vision gate (${vision.reason}) — from ${who || source}`);
+          return res.status(422).json({ ok: false, error: `vision gate: ${vision.reason}` });
         }
+      }
+      if (preview) {
+        return res.json({ ok: true, kind, preview: true, screenshot: shot, vision });
       }
       const out = await evalScene(kind === "card" ? "showCard" : "takeover", { html, who, seconds });
       console.log(`[${kind}] live (${html.length}b) from ${who || source}${visionEnabled ? " [vision-checked]" : " [operator, ungated]"}`);

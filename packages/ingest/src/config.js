@@ -51,6 +51,14 @@ export const config = {
   cardUrl: (process.env.CARD_URL || (process.env.MUTATE_URL || "http://localhost:8080/mutate").replace(/\/mutate\/?$/, "/card")),
   cardCooldownMs: num(process.env.CARD_COOLDOWN_MS, 60000), // min gap between viewer cards
 
+  // --- Phase 4: moderator dashboard (loopback admin server in this process) ---
+  dashboard: (process.env.DASHBOARD || "on").toLowerCase() !== "off",
+  adminPort: num(process.env.ADMIN_PORT, 8090),
+  // hold viewer cards for human approval instead of airing on vision-pass
+  holdCards: (process.env.HOLD_CARDS || "off").toLowerCase() === "on",
+  // streamer control-plane base (the /mutate url minus the path)
+  controlBase: (process.env.MUTATE_URL || "http://localhost:8080/mutate").replace(/\/mutate\/?$/, ""),
+
   // --- Fun Layer: instant emoji reactions + first-time welcome ---
   reactions: (process.env.REACTIONS || "on").toLowerCase() !== "off",
   // on-screen "typed → on-scene" latency readout
@@ -86,5 +94,8 @@ export const config = {
   // --- run control ---
   maxEvents: num(process.env.MAX_EVENTS, 0), // 0 = run until killed; >0 = stop after N source events (demo)
   simIntervalMs: num(process.env.SIM_INTERVAL_MS, 1800),
-  auditLog: process.env.AUDIT_LOG || "./control/audit.log",
+  // NB: ./state/, not ./control/ — control/ is root-owned (container writes
+  // it), so the host-run ingest's audit appends there failed SILENTLY for the
+  // project's whole life (audit() swallows errors by design).
+  auditLog: process.env.AUDIT_LOG || "./state/audit.log",
 };

@@ -41,7 +41,7 @@ for the full rationale.
 | **1** | Comments → moderation gate → rule-based director → `/mutate` | ✅ built + verified live via simulator (`packages/ingest`); real YouTube polling ready, needs OAuth — see [`docs/phase1.md`](docs/phase1.md) |
 | **2** | Swap the director's `parseIntent()` for a **Claude** call (same directive shape, re-validated) | ✅ built (`packages/ingest`, `DIRECTOR=llm`); needs `ANTHROPIC_API_KEY` to run — see [`docs/phase2.md`](docs/phase2.md) |
 | 3 | Super Chat tiers → escalating effects + pre-rendered takeover clips | partial (tiers→shoutouts done; takeover clips pending) |
-| 4 | Hardening: reconnect, watchdog, 1080p60, kill-switch dashboard | planned (`packages/dashboard`) |
+| 4 | Hardening: reconnect, watchdog, mod console (feed · bans · hold queue · kill switch) | ✅ done (1080p60 still pending) |
 
 ## Quick start (Phase 0)
 
@@ -62,7 +62,7 @@ packages/
   streamer/   ✅ Phase 0: scene + browser capture + ffmpeg→RTMP + /mutate
   director/      Phase 2: Claude brain that emits validated directives
   ingest/        Phase 1/3: YouTube chat + Super Chat ingestion + moderation
-  dashboard/     Phase 4: operator console + kill switch
+  dashboard/  ✅ Phase 4: mod console — live feed, bans, hold queue, kill switch
 docs/phase0.md   transport spike walkthrough
 scripts/         mutate.sh / mutate-file.sh helpers
 ```

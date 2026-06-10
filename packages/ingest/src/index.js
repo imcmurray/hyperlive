@@ -14,6 +14,8 @@ import { createReactions } from "./reactions.js";
 import { createVotes } from "./votes.js";
 import { createMusic, parseSunoShare, isLikeCommand, hasHeart } from "./music.js";
 import { authorCard, parseCardCommand } from "./card-author.js";
+import { isBanned, loadBans } from "./bans.js";
+import { startAdmin, publishFeed, enqueuePending, previewMarkup } from "./admin.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
 import { youtubeSource } from "./youtube.js";
 import { createStreamLikes } from "./stream-likes.js";
@@ -30,6 +32,9 @@ let applied = 0;
 let blocked = 0;
 
 async function audit(entry) {
+  // the dashboard's live feed rides the same call (in-process bus); the file
+  // is durable history, the bus is the moderator's live view
+  if (config.dashboard) publishFeed(entry);
   const line = JSON.stringify({ t: new Date().toISOString(), ...entry });
   try {
     await mkdir(path.dirname(config.auditLog), { recursive: true });
@@ -64,6 +69,14 @@ function reportDelay(comment) {
 
 async function handle(comment) {
   processed += 1;
+
+  // banned viewers are dropped before ANY processing — they can't influence
+  // the stage at all (local-only "kick"; we never touch YouTube's chat)
+  if (isBanned(comment)) {
+    blocked += 1;
+    await audit({ stage: "banned", comment: { author: comment.author, channelId: comment.channelId, text: comment.text } });
+    return;
+  }
 
   const mod = await moderator.moderate(comment);
   if (!mod.allowed) {
@@ -116,6 +129,20 @@ async function handle(comment) {
       lastCardAt = now;
       console.log(`  ▦ card  ${comment.author} → "${want}" (authoring…)`);
       const html = await authorCard(want, comment.author);
+      // HOLD mode: park it (with its off-air screenshot) for a moderator
+      // instead of airing on vision-pass — the dashboard approves/rejects
+      if (html && config.holdCards) {
+        const pv = await previewMarkup("card", html, comment.author).catch((e) => ({ ok: false, error: e.message }));
+        if (pv.ok) {
+          enqueuePending({ kind: "card", who: comment.author, request: want, html, screenshot: pv.screenshot, vision: pv.vision });
+          console.log(`  ▦ card  HELD for review ← ${comment.author}`);
+          await audit({ stage: "card_held", comment, request: want });
+        } else {
+          console.log(`  ▦ card  rejected at preview [${pv.error || "?"}]`);
+          await audit({ stage: "card", comment, request: want, ok: false, error: pv.error });
+        }
+        return;
+      }
       let result = { ok: false, error: "authoring failed" };
       if (html) {
         try {
@@ -178,6 +205,10 @@ async function main() {
   console.log(`[ingest] source=${config.source} → ${config.mutateUrl}`);
   console.log(`[ingest] director: ${director.engine}`);
   console.log(`[ingest] moderation: rate=${config.ratePerMin}/min, blocklist=on, llm=${config.moderationLLM}`);
+  const banCount = await loadBans();
+  if (banCount) console.log(`[ingest] ban list: ${banCount} entr${banCount === 1 ? "y" : "ies"}`);
+  const admin = config.dashboard ? startAdmin({ log: console.log }) : null;
+  if (config.holdCards) console.log("[ingest] HOLD_CARDS=on — viewer cards queue for moderator approval");
   if (config.maxEvents) console.log(`[ingest] demo mode: stopping after ${config.maxEvents} events`);
 
   const source = config.source === "youtube" ? youtubeSource()
@@ -198,6 +229,7 @@ async function main() {
     if (moodEngine) moodEngine.stop();
     if (streamLikes) streamLikes.stop();
     votes.stop();
+    if (admin) admin.close();
     console.log(`\n[ingest] ${label}. processed=${processed} applied=${applied} blocked=${blocked}`);
     process.exit(0);
   };

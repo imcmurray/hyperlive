@@ -1,0 +1,356 @@
+<!doctype html>
+<!-- Phase 4: moderator console. Served by the ingest's loopback admin server
+     (packages/ingest/src/admin.js). Self-contained on purpose: no webfonts,
+     no CDNs, no build step — it must render on an air-gapped loopback box. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HYPERLIVE · MOD CONSOLE</title>
+<style>
+  :root {
+    --bg: #0a0c0a;
+    --panel: #101410;
+    --panel2: #0d100d;
+    --line: #1e261e;
+    --txt: #c8d6c8;
+    --dim: #5e6e5e;
+    --green: #4ade80;   /* applied / ok */
+    --red: #f87171;     /* blocked / banned */
+    --amber: #fbbf24;   /* held / pending */
+    --cyan: #67e8f9;    /* music */
+    --violet: #c4b5fd;  /* votes */
+    --mono: "Berkeley Mono", "IBM Plex Mono", "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--txt); font: 13px/1.45 var(--mono);
+    overflow: hidden;
+  }
+  /* control-room texture: faint scanlines + vignette, matching the stage */
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 99;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,0.10) 2px 3px),
+      radial-gradient(ellipse at 50% 40%, transparent 60%, rgba(0,0,0,0.5));
+  }
+
+  /* ---- top bar ---- */
+  header {
+    display: flex; align-items: center; gap: 18px;
+    height: 46px; padding: 0 16px;
+    background: linear-gradient(#131913, #0e120e);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { font-weight: 700; letter-spacing: .22em; font-size: 13px; }
+  .brand b { color: var(--green); }
+  .leds { display: flex; gap: 14px; margin-left: 10px; }
+  .led { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); letter-spacing: .08em; }
+  .led i {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #333; box-shadow: 0 0 0 1px #000 inset;
+  }
+  .led.on i  { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2.2s infinite; }
+  .led.bad i { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+  @keyframes pulse { 50% { opacity: .55; } }
+  .spacer { flex: 1; }
+  #clock { color: var(--dim); letter-spacing: .12em; font-size: 12px; }
+  /* guarded kill switch */
+  #kill {
+    font: 700 11px var(--mono); letter-spacing: .14em;
+    color: #ffd9d9; background: #3a1010; border: 1px solid #7a2424;
+    padding: 7px 14px; cursor: pointer; border-radius: 3px;
+    transition: background .15s, box-shadow .15s;
+  }
+  #kill:hover { background: #5a1616; box-shadow: 0 0 14px rgba(248,113,113,.35); }
+  #kill.armed { background: #a31f1f; color: #fff; animation: pulse 1s infinite; }
+
+  /* ---- 3-column console ---- */
+  main {
+    display: grid; grid-template-columns: 230px 1fr 380px;
+    height: calc(100% - 46px);
+  }
+  section { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  section:last-child { border-right: 0; }
+  h2 {
+    font-size: 10px; letter-spacing: .24em; color: var(--dim); font-weight: 700;
+    padding: 10px 12px 8px; border-bottom: 1px solid var(--line);
+    background: var(--panel2); flex: none;
+  }
+  .scroll { overflow-y: auto; flex: 1; min-height: 0; }
+  .scroll::-webkit-scrollbar { width: 8px; }
+  .scroll::-webkit-scrollbar-thumb { background: #223022; border-radius: 4px; }
+
+  /* ---- left rail: status + bans ---- */
+  .stat { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .stat .k { font-size: 10px; color: var(--dim); letter-spacing: .18em; }
+  .stat .v { font-size: 15px; margin-top: 2px; word-break: break-all; }
+  .v.green { color: var(--green); } .v.red { color: var(--red); } .v.cyan { color: var(--cyan); }
+  #bans { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .ban-chip {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    background: #1a0f0f; border: 1px solid #3a1d1d; border-radius: 3px;
+    padding: 5px 8px; font-size: 12px; color: #f1b8b8;
+  }
+  .ban-chip button { background: none; border: 0; color: var(--dim); cursor: pointer; font: 11px var(--mono); }
+  .ban-chip button:hover { color: var(--txt); }
+  #ban-form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--line); }
+  #ban-form input {
+    flex: 1; background: #0c0f0c; border: 1px solid var(--line); color: var(--txt);
+    font: 12px var(--mono); padding: 6px 8px; border-radius: 3px; min-width: 0;
+  }
+  #ban-form button, .btn {
+    background: #162016; border: 1px solid #2c3c2c; color: var(--txt);
+    font: 700 11px var(--mono); letter-spacing: .08em; padding: 6px 10px;
+    cursor: pointer; border-radius: 3px;
+  }
+  #ban-form button:hover, .btn:hover { background: #1e2c1e; }
+
+  /* ---- center: the live feed ---- */
+  #feed { padding: 6px 0; }
+  .row {
+    display: grid; grid-template-columns: 64px 86px 130px 1fr 44px;
+    gap: 10px; padding: 5px 12px; align-items: baseline;
+    border-bottom: 1px solid #131913;
+    animation: land .35s ease-out;
+  }
+  @keyframes land { from { background: #1d2a1d; } }
+  .row .t { color: var(--dim); font-size: 11px; }
+  .chip {
+    font-size: 10px; font-weight: 700; letter-spacing: .1em; text-align: center;
+    padding: 2px 0; border-radius: 2px; border: 1px solid;
+  }
+  .c-applied  { color: var(--green);  border-color: #234c32; background: #0e1f15; }
+  .c-blocked  { color: var(--red);    border-color: #532222; background: #1f0e0e; }
+  .c-banned   { color: var(--red);    border-color: #532222; background: #2a0c0c; }
+  .c-held     { color: var(--amber);  border-color: #5c4a16; background: #211a08; }
+  .c-skipped  { color: var(--dim);    border-color: #283228; background: transparent; }
+  .c-music    { color: var(--cyan);   border-color: #1c4b56; background: #0a1b1f; }
+  .c-vote     { color: var(--violet); border-color: #3f3760; background: #14101f; }
+  .c-mod      { color: var(--amber);  border-color: #5c4a16; background: #1a1505; }
+  .row .who { color: #9fc09f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--txt); }
+  .row .msg small { color: var(--dim); }
+  .row .act button {
+    background: none; border: 1px solid #3a2020; color: #b97c7c; font: 10px var(--mono);
+    padding: 2px 6px; cursor: pointer; border-radius: 2px;
+  }
+  .row .act button:hover { background: #2a1010; color: #f1b8b8; }
+
+  /* ---- right: pending review + compose ---- */
+  .pending-item {
+    margin: 10px; border: 1px solid #4a3c14; background: #161204; border-radius: 4px;
+    overflow: hidden; animation: land .4s ease-out;
+  }
+  .pending-item .ph { padding: 7px 10px; display: flex; justify-content: space-between; font-size: 11px; color: var(--amber); letter-spacing: .08em; }
+  .pending-item img { display: block; width: 100%; background: #000; border-block: 1px solid #3a2f10; }
+  .pending-item .req { padding: 6px 10px; color: var(--dim); font-size: 11px; }
+  .pending-item .vv { padding: 0 10px 6px; font-size: 11px; }
+  .pending-item .row-btns { display: flex; }
+  .row-btns button {
+    flex: 1; padding: 8px 0; border: 0; cursor: pointer; font: 700 11px var(--mono); letter-spacing: .14em;
+  }
+  .approve { background: #0f2a18; color: var(--green); } .approve:hover { background: #16401f; }
+  .reject  { background: #2a0f0f; color: var(--red); }   .reject:hover  { background: #401616; }
+  #none-pending { color: var(--dim); text-align: center; padding: 26px 0 16px; font-size: 11px; letter-spacing: .14em; }
+  #compose { border-top: 1px solid var(--line); padding: 10px; flex: none; }
+  #compose textarea {
+    width: 100%; height: 74px; background: #0c0f0c; border: 1px solid var(--line);
+    color: var(--txt); font: 11px var(--mono); padding: 7px; border-radius: 3px; resize: vertical;
+  }
+  #compose .crow { display: flex; gap: 6px; margin-top: 6px; }
+  #compose select, #compose input {
+    background: #0c0f0c; border: 1px solid var(--line); color: var(--txt);
+    font: 11px var(--mono); padding: 5px 7px; border-radius: 3px;
+  }
+  #compose input { flex: 1; min-width: 0; }
+  #toast {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: #162016; border: 1px solid var(--line); color: var(--txt);
+    padding: 8px 16px; border-radius: 4px; font-size: 12px; display: none; z-index: 100;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">HYPERLIVE <b>MOD CONSOLE</b></div>
+  <div class="leds">
+    <span class="led" id="led-ingest"><i></i>INGEST</span>
+    <span class="led" id="led-stream"><i></i>STREAM</span>
+    <span class="led" id="led-scene"><i></i>SCENE</span>
+  </div>
+  <div class="spacer"></div>
+  <span id="clock"></span>
+  <button id="kill" title="clear all model-generated content from the stage">◉ KILL GENERATED</button>
+</header>
+
+<main>
+  <!-- left rail -->
+  <section>
+    <h2>SHOW</h2>
+    <div class="stat"><div class="k">PHASE</div><div class="v" id="s-phase">—</div></div>
+    <div class="stat"><div class="k">NOW PLAYING</div><div class="v cyan" id="s-song">—</div></div>
+    <div class="stat"><div class="k">HOLD MODE</div><div class="v" id="s-hold">—</div></div>
+    <h2>BAN LIST</h2>
+    <div class="scroll" id="bans"></div>
+    <form id="ban-form">
+      <input id="ban-input" placeholder="@name or channelId" autocomplete="off">
+      <button>BAN</button>
+    </form>
+  </section>
+
+  <!-- center: feed -->
+  <section>
+    <h2>MODERATION FEED — LIVE</h2>
+    <div class="scroll" id="feedwrap"><div id="feed"></div></div>
+  </section>
+
+  <!-- right: review queue -->
+  <section>
+    <h2>PENDING REVIEW</h2>
+    <div class="scroll" id="pending"><div id="none-pending">— QUEUE EMPTY —</div></div>
+    <div id="compose">
+      <h2 style="border:0;background:none;padding:0 0 6px">COMPOSE (MOD-AUTHORED)</h2>
+      <textarea id="c-html" placeholder="<div style=&quot;…&quot;>raw HTML+CSS — previews off-air into the queue</div>"></textarea>
+      <div class="crow">
+        <select id="c-kind"><option value="card">card 360×250</option><option value="takeover">takeover 1280×720</option></select>
+        <input id="c-who" placeholder="credit as…" value="moderator">
+        <button class="btn" id="c-send">PREVIEW → QUEUE</button>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const toast = (msg) => { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 2600); };
+  const api = (path, body) => fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}).then((r) => r.json());
+
+  setInterval(() => { $("#clock").textContent = new Date().toLocaleTimeString(); }, 1000);
+
+  // ---- stage → chip class/label ----
+  const CHIP = {
+    applied: ["c-applied", "APPLIED"], blocked: ["c-blocked", "BLOCKED"], banned: ["c-banned", "BANNED"],
+    skipped: ["c-skipped", "skip"], held: ["c-held", "HELD"], card_held: ["c-held", "HELD"],
+    card: ["c-held", "CARD"], music_request: ["c-music", "MUSIC"], music_like: ["c-music", "LIKE"],
+    vote: ["c-vote", "VOTE"], approved: ["c-mod", "APPROVED"], rejected_by_mod: ["c-mod", "REJECTED"],
+    banned_by_mod: ["c-mod", "MOD BAN"], unbanned: ["c-mod", "UNBAN"], kill_switch: ["c-mod", "KILL"],
+    error: ["c-blocked", "ERROR"], card_cooldown: ["c-skipped", "cooldn"], approve_failed: ["c-blocked", "AIRFAIL"],
+  };
+
+  // ---- live feed (SSE) ----
+  const feed = $("#feed");
+  const feedwrap = $("#feedwrap");
+  function addRow(e) {
+    const c = e.comment || {};
+    const [cls, label] = CHIP[e.stage] || ["c-skipped", e.stage || "?"];
+    const detail = e.reason || e.error || (e.directive ? e.directive.action : "") || e.request || "";
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML =
+      `<span class="t">${esc((e.t || "").slice(11, 19))}</span>` +
+      `<span class="chip ${cls}">${esc(label)}</span>` +
+      `<span class="who">${esc(c.author || "")}</span>` +
+      `<span class="msg">${esc(c.text || "")}${detail ? ` <small>· ${esc(detail)}</small>` : ""}</span>` +
+      `<span class="act">${c.author && !["banned", "banned_by_mod", "unbanned"].includes(e.stage) ? `<button data-ban="${esc(c.author)}" data-cid="${esc(c.channelId || "")}">ban</button>` : ""}</span>`;
+    const stick = feedwrap.scrollTop + feedwrap.clientHeight >= feedwrap.scrollHeight - 40;
+    feed.appendChild(row);
+    while (feed.children.length > 300) feed.removeChild(feed.firstChild);
+    if (stick) feedwrap.scrollTop = feedwrap.scrollHeight;
+  }
+  function connect() {
+    const es = new EventSource("/admin/feed");
+    es.onmessage = (m) => { try { const e = JSON.parse(m.data); addRow(e); if (["held", "card_held", "approved", "rejected_by_mod", "banned_by_mod", "unbanned"].includes(e.stage)) refresh(); } catch {} };
+    es.onerror = () => { es.close(); $("#led-ingest").className = "led bad"; setTimeout(connect, 3000); };
+    es.onopen = () => { $("#led-ingest").className = "led on"; };
+  }
+  connect();
+  feed.addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-ban]");
+    if (!b) return;
+    if (!confirm(`Ban ${b.dataset.ban}? Their messages stop reaching the stage.`)) return;
+    api("/admin/bans", { action: "ban", author: b.dataset.ban, channelId: b.dataset.cid }).then(() => { toast(`banned ${b.dataset.ban}`); refresh(); });
+  });
+
+  // ---- state poll: health LEDs, bans, pending ----
+  async function refresh() {
+    let st;
+    try { st = await api("/admin/state"); } catch { return; }
+    $("#led-stream").className = "led " + (st.health?.ffmpegUp ? "on" : "bad");
+    $("#led-scene").className = "led " + (st.health?.sceneReady ? "on" : "bad");
+    $("#s-phase").textContent = (st.health?.showState || "?").toUpperCase();
+    $("#s-phase").className = "v " + (st.health?.showState === "onair" ? "green" : "");
+    $("#s-song").textContent = st.music?.title ? `${st.music.title} — ${st.music.artist}` : "—";
+    $("#s-hold").textContent = st.holdCards ? "HOLD FOR REVIEW" : "AUTO (vision gate)";
+    $("#s-hold").className = "v " + (st.holdCards ? "red" : "green");
+
+    const bans = $("#bans");
+    bans.innerHTML = (st.bans || []).map((b) =>
+      `<div class="ban-chip"><span>${esc(b.author || b.channelId)}</span><button data-unban="${esc(b.author || "")}" data-cid="${esc(b.channelId || "")}">✕</button></div>`
+    ).join("") || `<div id="none-pending">— NO BANS —</div>`;
+
+    const pend = st.pending || [];
+    $("#pending").innerHTML = pend.length ? pend.map((p) => `
+      <div class="pending-item" data-id="${esc(p.id)}">
+        <div class="ph"><span>${esc(p.kind.toUpperCase())} · ${esc(p.who)}</span><span>${new Date(p.ts).toLocaleTimeString()}</span></div>
+        ${p.screenshot ? `<img src="data:image/png;base64,${p.screenshot}" alt="pre-render">` : ""}
+        <div class="req">${esc(p.request || "")}</div>
+        ${p.vision ? `<div class="vv" style="color:${p.vision.safe ? "var(--green)" : "var(--red)"}">vision: ${p.vision.safe ? "safe" : "UNSAFE"} ${esc(p.vision.reason || "")}</div>` : ""}
+        <div class="row-btns"><button class="approve">▶ AIR IT</button><button class="reject">✕ REJECT</button></div>
+      </div>`).join("") : `<div id="none-pending">— QUEUE EMPTY —</div>`;
+  }
+  refresh();
+  setInterval(refresh, 5000);
+
+  $("#bans").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-unban]");
+    if (!b) return;
+    api("/admin/bans", { action: "unban", author: b.dataset.unban, channelId: b.dataset.cid }).then(() => { toast("unbanned"); refresh(); });
+  });
+  $("#ban-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const v = $("#ban-input").value.trim();
+    if (!v) return;
+    const body = v.startsWith("UC") && v.length > 20 ? { action: "ban", channelId: v } : { action: "ban", author: v };
+    api("/admin/bans", body).then(() => { $("#ban-input").value = ""; toast(`banned ${v}`); refresh(); });
+  });
+
+  $("#pending").addEventListener("click", (ev) => {
+    const item = ev.target.closest(".pending-item");
+    if (!item) return;
+    const id = item.dataset.id;
+    if (ev.target.closest(".approve")) api(`/admin/pending/${id}`, { action: "approve" }).then((r) => { toast(r.ok ? "ON AIR" : `air failed: ${r.error || "?"}`); refresh(); });
+    if (ev.target.closest(".reject")) api(`/admin/pending/${id}`, { action: "reject" }).then(() => { toast("rejected"); refresh(); });
+  });
+
+  $("#c-send").addEventListener("click", () => {
+    const html = $("#c-html").value.trim();
+    if (!html) return toast("compose: html required");
+    api("/admin/compose", { kind: $("#c-kind").value, html, who: $("#c-who").value || "moderator" })
+      .then((r) => { toast(r.ok ? "previewed → queue" : `rejected: ${r.error || "?"}`); if (r.ok) $("#c-html").value = ""; refresh(); });
+  });
+
+  // guarded kill switch: first click arms, second within 3s fires
+  let armed = 0;
+  $("#kill").addEventListener("click", () => {
+    const now = Date.now();
+    if (now - armed > 3000) {
+      armed = now;
+      $("#kill").classList.add("armed");
+      $("#kill").textContent = "◉ CONFIRM KILL";
+      setTimeout(() => { $("#kill").classList.remove("armed"); $("#kill").textContent = "◉ KILL GENERATED"; }, 3000);
+      return;
+    }
+    armed = 0;
+    $("#kill").classList.remove("armed");
+    $("#kill").textContent = "◉ KILL GENERATED";
+    api("/admin/clear", {}).then(() => toast("cleared all generated content"));
+  });
+})();
+</script>
+</body>
+</html>

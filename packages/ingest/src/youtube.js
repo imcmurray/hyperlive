@@ -60,6 +60,7 @@ function toComment(item) {
   return {
     id: item.id,
     author: a.displayName || "viewer",
+    channelId: a.channelId || "", // stable identity for the ban list (names can change)
     text,
     avatar: a.profileImageUrl || "",
     ts: Date.parse(s.publishedAt) || Date.now(),

@@ -66,6 +66,7 @@ stop() {
 start() {
   stop >/dev/null            # guarantee single instance
   echo "[live] starting YouTube-chat ingest → $MUTATE_URL  (log: $LOG)"
+  echo "[live] mod dashboard → http://127.0.0.1:${ADMIN_PORT:-8090}/  (loopback; tunnel in for remote mods)"
   nohup env \
     SOURCE=youtube \
     MUTATE_URL="$MUTATE_URL" \
