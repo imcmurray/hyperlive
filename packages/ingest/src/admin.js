@@ -23,6 +23,10 @@ import { ban, unban, listBans } from "./bans.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DASH_HTML = path.resolve(__dirname, "../../dashboard/index.html");
 
+// ---- ingest vitals: counters provided by index.js (avoids a circular import) --
+let vitalsProvider = () => ({});
+export function setVitalsProvider(fn) { vitalsProvider = fn; }
+
 // ---- live moderation feed: ring buffer + SSE fanout ------------------------
 const RING_MAX = 250;
 const ring = [];
@@ -126,7 +130,23 @@ export function startAdmin({ log = console.log } = {}) {
           pending: [...pending.values()],
           health, music, queue,
           holdCards: config.holdCards,
+          vitals: vitalsProvider(),
         });
+      }
+
+      // real-time stage monitor: proxy the streamer's screenshot so a tunneled
+      // moderator only needs port 8090 (YouTube's own preview runs ~30s behind —
+      // useless for "kill it now" decisions)
+      if (route === "GET /admin/stage.png") {
+        try {
+          const r = await fetch(`${config.controlBase}/screenshot`, { signal: AbortSignal.timeout(6000) });
+          if (!r.ok) throw new Error(`screenshot http ${r.status}`);
+          const buf = Buffer.from(await r.arrayBuffer());
+          res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store", "content-length": buf.length });
+          return res.end(buf);
+        } catch {
+          res.writeHead(503); return res.end();
+        }
       }
 
       // ---- show + music transport: the live.sh verbs, dashboard-clickable ----
@@ -169,10 +189,13 @@ export function startAdmin({ log = console.log } = {}) {
       if (route === "POST /admin/bans") {
         const b = await readJson(req);
         const action = String(b.action || "ban");
+        // durationMinutes: 0/absent = permanent, else a timeout
+        const durationMs = Math.max(0, Number(b.durationMinutes) || 0) * 60000;
         const out = action === "unban"
           ? await unban({ channelId: b.channelId, author: b.author })
-          : await ban({ channelId: b.channelId, author: b.author, by: "dashboard" });
-        publishFeed({ stage: action === "unban" ? "unbanned" : "banned_by_mod", comment: { author: b.author || b.channelId, text: "" } });
+          : await ban({ channelId: b.channelId, author: b.author, by: "dashboard", durationMs });
+        const label = durationMs ? `timeout ${Math.round(durationMs / 60000)}m` : "";
+        publishFeed({ stage: action === "unban" ? "unbanned" : "banned_by_mod", comment: { author: b.author || b.channelId, text: label } });
         return json(res, out.ok ? 200 : 400, out);
       }
 

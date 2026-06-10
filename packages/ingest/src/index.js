@@ -15,7 +15,8 @@ import { createVotes } from "./votes.js";
 import { createMusic, parseSunoShare, isLikeCommand, hasHeart } from "./music.js";
 import { authorCard, parseCardCommand } from "./card-author.js";
 import { isBanned, loadBans } from "./bans.js";
-import { startAdmin, publishFeed, enqueuePending, previewMarkup } from "./admin.js";
+import { startAdmin, publishFeed, enqueuePending, previewMarkup, setVitalsProvider } from "./admin.js";
+import { unitsSpent } from "./quota.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
 import { youtubeSource } from "./youtube.js";
 import { createStreamLikes } from "./stream-likes.js";
@@ -207,6 +208,12 @@ async function main() {
   console.log(`[ingest] moderation: rate=${config.ratePerMin}/min, blocklist=on, llm=${config.moderationLLM}`);
   const banCount = await loadBans();
   if (banCount) console.log(`[ingest] ban list: ${banCount} entr${banCount === 1 ? "y" : "ies"}`);
+  setVitalsProvider(() => ({
+    processed, applied, blocked,
+    quotaUnits: unitsSpent(),
+    quotaLimit: config.yt.quotaLimit,
+    source: config.source,
+  }));
   const admin = config.dashboard ? startAdmin({ log: console.log }) : null;
   if (config.holdCards) console.log("[ingest] HOLD_CARDS=on — viewer cards queue for moderator approval");
   if (config.maxEvents) console.log(`[ingest] demo mode: stopping after ${config.maxEvents} events`);

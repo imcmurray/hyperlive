@@ -83,6 +83,12 @@
   .scroll::-webkit-scrollbar-thumb { background: #223022; border-radius: 4px; }
 
   /* ---- left rail: status + bans ---- */
+  #monitor {
+    display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover;
+    background: #000; border-bottom: 1px solid var(--line);
+    transition: opacity .3s;
+  }
+  #monitor.stale { opacity: .25; }
   .stat { padding: 10px 12px; border-bottom: 1px solid var(--line); }
   .stat .k { font-size: 10px; color: var(--dim); letter-spacing: .18em; }
   .stat .v { font-size: 15px; margin-top: 2px; word-break: break-all; }
@@ -99,6 +105,10 @@
   #ban-form input {
     flex: 1; background: #0c0f0c; border: 1px solid var(--line); color: var(--txt);
     font: 12px var(--mono); padding: 6px 8px; border-radius: 3px; min-width: 0;
+  }
+  #ban-form select {
+    background: #0c0f0c; border: 1px solid var(--line); color: var(--txt);
+    font: 11px var(--mono); border-radius: 3px;
   }
   #ban-form button, .btn {
     background: #162016; border: 1px solid #2c3c2c; color: var(--txt);
@@ -122,6 +132,26 @@
   #upnext b { color: var(--cyan); font-weight: 400; }
 
   /* ---- center: the live feed ---- */
+  #toolbar {
+    display: flex; gap: 6px; align-items: center; padding: 7px 10px;
+    border-bottom: 1px solid var(--line); background: var(--panel2); flex: none;
+  }
+  .fchip {
+    background: none; border: 1px solid #283228; color: var(--dim);
+    font: 700 10px var(--mono); letter-spacing: .1em; padding: 4px 8px;
+    cursor: pointer; border-radius: 2px;
+  }
+  .fchip.active { color: var(--green); border-color: #234c32; background: #0e1f15; }
+  #fsearch {
+    flex: 1; min-width: 60px; background: #0c0f0c; border: 1px solid var(--line);
+    color: var(--txt); font: 11px var(--mono); padding: 4px 8px; border-radius: 2px;
+  }
+  #fpause { background: none; border: 1px solid #283228; color: var(--dim); font: 700 10px var(--mono); padding: 4px 8px; cursor: pointer; border-radius: 2px; }
+  #fpause.on { color: var(--amber); border-color: #5c4a16; background: #211a08; }
+  .mini-menu button {
+    background: #1a0f0f; border: 1px solid #3a1d1d; color: #f1b8b8;
+    font: 10px var(--mono); padding: 2px 4px; cursor: pointer; border-radius: 2px; margin-left: 2px;
+  }
   #feed { padding: 6px 0; }
   .row {
     display: grid; grid-template-columns: 64px 86px 130px 1fr 44px;
@@ -202,6 +232,8 @@
 <main>
   <!-- left rail -->
   <section>
+    <h2>STAGE MONITOR — REALTIME</h2>
+    <img id="monitor" alt="live stage" title="what is on the broadcast RIGHT NOW (YouTube's preview runs ~30s behind)">
     <h2>SHOW</h2>
     <div class="stat"><div class="k">PHASE</div><div class="v" id="s-phase">—</div></div>
     <div class="stat"><div class="k">NOW PLAYING</div><div class="v cyan" id="s-song">—</div></div>
@@ -223,10 +255,14 @@
       <button data-music="fadein">FADE IN</button>
     </div>
     <div id="upnext"></div>
+    <h2>VITALS</h2>
+    <div class="stat"><div class="k">PIPELINE</div><div class="v" id="s-pipe" style="font-size:12px">—</div></div>
+    <div class="stat"><div class="k">YT QUOTA</div><div class="v" id="s-quota" style="font-size:12px">—</div></div>
     <h2>BAN LIST</h2>
     <div class="scroll" id="bans"></div>
     <form id="ban-form">
       <input id="ban-input" placeholder="@name or channelId" autocomplete="off">
+      <select id="ban-dur"><option value="0">perm</option><option value="10">10m</option><option value="60">1h</option></select>
       <button>BAN</button>
     </form>
   </section>
@@ -234,6 +270,16 @@
   <!-- center: feed -->
   <section>
     <h2>MODERATION FEED — LIVE</h2>
+    <div id="toolbar">
+      <button class="fchip active" data-f="all">ALL</button>
+      <button class="fchip" data-f="blocked">BLOCKED</button>
+      <button class="fchip" data-f="held">HELD</button>
+      <button class="fchip" data-f="mod">MOD</button>
+      <button class="fchip" data-f="music">MUSIC</button>
+      <button class="fchip" data-f="vote">VOTE</button>
+      <input id="fsearch" placeholder="filter author / text…" autocomplete="off">
+      <button id="fpause">⏸ PAUSE</button>
+    </div>
     <div class="scroll" id="feedwrap"><div id="feed"></div></div>
   </section>
 
@@ -273,10 +319,27 @@
     error: ["c-blocked", "ERROR"], card_cooldown: ["c-skipped", "cooldn"], approve_failed: ["c-blocked", "AIRFAIL"],
   };
 
-  // ---- live feed (SSE) ----
+  // ---- live feed: client-side event store + filters + pause ----
   const feed = $("#feed");
   const feedwrap = $("#feedwrap");
-  function addRow(e) {
+  const events = [];
+  let filter = "all", search = "", paused = false, bufferedWhilePaused = 0;
+  const GROUPS = {
+    blocked: ["blocked", "banned", "error", "approve_failed"],
+    held: ["held", "card_held", "card", "card_cooldown"],
+    mod: ["approved", "rejected_by_mod", "banned_by_mod", "unbanned", "kill_switch", "show_control", "music_control"],
+    music: ["music_request", "music_like"],
+    vote: ["vote"],
+  };
+  function passes(e) {
+    if (filter !== "all" && !(GROUPS[filter] || []).includes(e.stage)) return false;
+    if (search) {
+      const c = e.comment || {};
+      if (!(`${c.author || ""} ${c.text || ""}`.toLowerCase().includes(search))) return false;
+    }
+    return true;
+  }
+  function buildRow(e) {
     const c = e.comment || {};
     const [cls, label] = CHIP[e.stage] || ["c-skipped", e.stage || "?"];
     const detail = e.reason || e.error || (e.directive ? e.directive.action : "") || e.request || "";
@@ -288,23 +351,76 @@
       `<span class="who">${esc(c.author || "")}</span>` +
       `<span class="msg">${esc(c.text || "")}${detail ? ` <small>· ${esc(detail)}</small>` : ""}</span>` +
       `<span class="act">${c.author && !["banned", "banned_by_mod", "unbanned"].includes(e.stage) ? `<button data-ban="${esc(c.author)}" data-cid="${esc(c.channelId || "")}">ban</button>` : ""}</span>`;
+    return row;
+  }
+  function appendRow(e) {
     const stick = feedwrap.scrollTop + feedwrap.clientHeight >= feedwrap.scrollHeight - 40;
-    feed.appendChild(row);
+    feed.appendChild(buildRow(e));
     while (feed.children.length > 300) feed.removeChild(feed.firstChild);
     if (stick) feedwrap.scrollTop = feedwrap.scrollHeight;
   }
+  function rebuildFeed() {
+    feed.replaceChildren(...events.filter(passes).slice(-300).map(buildRow));
+    feedwrap.scrollTop = feedwrap.scrollHeight;
+  }
+
+  // browser notifications for held items (gesture-gated permission request)
+  let notifyOk = false;
+  document.addEventListener("click", () => {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") Notification.requestPermission().then((p) => { notifyOk = p === "granted"; });
+    else notifyOk = Notification.permission === "granted";
+  }, { once: true });
+
   function connect() {
     const es = new EventSource("/admin/feed");
-    es.onmessage = (m) => { try { const e = JSON.parse(m.data); addRow(e); if (["held", "card_held", "approved", "rejected_by_mod", "banned_by_mod", "unbanned"].includes(e.stage)) refresh(); } catch {} };
+    es.onmessage = (m) => {
+      try {
+        const e = JSON.parse(m.data);
+        events.push(e);
+        if (events.length > 400) events.shift();
+        if (["held", "card_held"].includes(e.stage)) {
+          if (notifyOk) new Notification("HyperLive — held for review", { body: `${e.kind || "card"} from ${e.comment?.author || "?"}` });
+          refresh();
+        } else if (["approved", "rejected_by_mod", "banned_by_mod", "unbanned"].includes(e.stage)) refresh();
+        if (paused) { bufferedWhilePaused++; $("#fpause").textContent = `▶ RESUME (${bufferedWhilePaused})`; return; }
+        if (passes(e)) appendRow(e);
+      } catch {}
+    };
     es.onerror = () => { es.close(); $("#led-ingest").className = "led bad"; setTimeout(connect, 3000); };
     es.onopen = () => { $("#led-ingest").className = "led on"; };
   }
   connect();
+
+  // toolbar: filter chips, author/text search, pause-scroll
+  document.querySelectorAll(".fchip").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".fchip").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    filter = b.dataset.f;
+    rebuildFeed();
+  }));
+  $("#fsearch").addEventListener("input", (ev) => { search = ev.target.value.trim().toLowerCase(); rebuildFeed(); });
+  $("#fpause").addEventListener("click", () => {
+    paused = !paused;
+    $("#fpause").classList.toggle("on", paused);
+    if (!paused) { $("#fpause").textContent = "⏸ PAUSE"; bufferedWhilePaused = 0; rebuildFeed(); }
+    else $("#fpause").textContent = "▶ RESUME (0)";
+  });
+
+  // ban from the feed: the duration choice IS the confirmation
   feed.addEventListener("click", (ev) => {
+    const d = ev.target.closest("button[data-dur]");
+    if (d) {
+      api("/admin/bans", { action: "ban", author: d.dataset.ban, channelId: d.dataset.cid, durationMinutes: Number(d.dataset.dur) })
+        .then(() => { toast(`${d.dataset.dur === "0" ? "banned" : `timeout ${d.dataset.dur}m`}: ${d.dataset.ban}`); refresh(); });
+      return;
+    }
     const b = ev.target.closest("button[data-ban]");
     if (!b) return;
-    if (!confirm(`Ban ${b.dataset.ban}? Their messages stop reaching the stage.`)) return;
-    api("/admin/bans", { action: "ban", author: b.dataset.ban, channelId: b.dataset.cid }).then(() => { toast(`banned ${b.dataset.ban}`); refresh(); });
+    const who = esc(b.dataset.ban), cid = esc(b.dataset.cid || "");
+    b.parentElement.classList.add("mini-menu");
+    b.parentElement.innerHTML = [["10", "10m"], ["60", "1h"], ["0", "PERM"]]
+      .map(([v, l]) => `<button data-dur="${v}" data-ban="${who}" data-cid="${cid}">${l}</button>`).join("");
   });
 
   // ---- state poll: health LEDs, bans, pending ----
@@ -325,10 +441,18 @@
       ? "UP NEXT " + nexts.map((t) => `<b>${esc(t.title)}</b>`).join(" · ")
       : "";
 
+    // vitals + title badge
+    const v = st.vitals || {};
+    $("#s-pipe").textContent = `${v.processed || 0} in · ${v.applied || 0} applied · ${v.blocked || 0} blocked`;
+    $("#s-quota").textContent = v.source === "youtube" ? `${v.quotaUnits || 0} / ${v.quotaLimit || "?"} units` : `— (${v.source || "?"} source)`;
+    const pn = (st.pending || []).length;
+    document.title = (pn ? `(${pn}) ` : "") + "HYPERLIVE · MOD CONSOLE";
+
     const bans = $("#bans");
-    bans.innerHTML = (st.bans || []).map((b) =>
-      `<div class="ban-chip"><span>${esc(b.author || b.channelId)}</span><button data-unban="${esc(b.author || "")}" data-cid="${esc(b.channelId || "")}">✕</button></div>`
-    ).join("") || `<div id="none-pending">— NO BANS —</div>`;
+    bans.innerHTML = (st.bans || []).map((b) => {
+      const left = b.expiresAt ? ` · ${Math.max(1, Math.ceil((b.expiresAt - Date.now()) / 60000))}m left` : "";
+      return `<div class="ban-chip"><span>${esc(b.author || b.channelId)}<small style="color:var(--dim)">${left}</small></span><button data-unban="${esc(b.author || "")}" data-cid="${esc(b.channelId || "")}">✕</button></div>`;
+    }).join("") || `<div id="none-pending">— NO BANS —</div>`;
 
     const pend = st.pending || [];
     $("#pending").innerHTML = pend.length ? pend.map((p) => `
@@ -374,8 +498,17 @@
     const v = $("#ban-input").value.trim();
     if (!v) return;
     const body = v.startsWith("UC") && v.length > 20 ? { action: "ban", channelId: v } : { action: "ban", author: v };
+    body.durationMinutes = Number($("#ban-dur").value) || 0;
     api("/admin/bans", body).then(() => { $("#ban-input").value = ""; toast(`banned ${v}`); refresh(); });
   });
+
+  // realtime stage monitor (YouTube's preview is ~30s behind; this is NOW)
+  const monitor = $("#monitor");
+  monitor.onerror = () => monitor.classList.add("stale");
+  monitor.onload = () => monitor.classList.remove("stale");
+  const pollMonitor = () => { monitor.src = "/admin/stage.png?t=" + Date.now(); };
+  pollMonitor();
+  setInterval(pollMonitor, 5000);
 
   $("#pending").addEventListener("click", (ev) => {
     const item = ev.target.closest(".pending-item");

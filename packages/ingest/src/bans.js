@@ -13,7 +13,7 @@ import { saveJson } from "./state.js";
 
 const BANS_FILE = process.env.BANS_FILE || "./state/bans.json";
 
-let bans = []; // [{ channelId, author, ts, by }]
+let bans = []; // [{ channelId, author, ts, by, expiresAt? }] — expiresAt absent = permanent
 
 export async function loadBans() {
   try {
@@ -27,7 +27,15 @@ async function persist() {
   try { await saveJson(BANS_FILE, bans); } catch { /* non-fatal */ }
 }
 
+// lazily drop expired timeouts (a write only happens when something expired)
+function pruneExpired() {
+  const now = Date.now();
+  const live = bans.filter((b) => !b.expiresAt || b.expiresAt > now);
+  if (live.length !== bans.length) { bans = live; persist(); }
+}
+
 export function isBanned(comment) {
+  pruneExpired();
   const id = comment?.channelId || "";
   const name = String(comment?.author || "").toLowerCase();
   return bans.some((b) =>
@@ -35,12 +43,15 @@ export function isBanned(comment) {
     (name && b.author && b.author.toLowerCase() === name));
 }
 
-export async function ban({ channelId = "", author = "", by = "dashboard" }) {
+// durationMs missing/0 → permanent; otherwise a timeout that self-expires
+export async function ban({ channelId = "", author = "", by = "dashboard", durationMs = 0 }) {
   if (!channelId && !author) return { ok: false, error: "channelId or author required" };
   if (isBanned({ channelId, author })) return { ok: true, already: true };
-  bans.push({ channelId, author, ts: Date.now(), by });
+  const entry = { channelId, author, ts: Date.now(), by };
+  if (Number(durationMs) > 0) entry.expiresAt = Date.now() + Number(durationMs);
+  bans.push(entry);
   await persist();
-  return { ok: true };
+  return { ok: true, expiresAt: entry.expiresAt };
 }
 
 export async function unban({ channelId = "", author = "" }) {
@@ -53,4 +64,4 @@ export async function unban({ channelId = "", author = "" }) {
   return { ok: true, removed: before - bans.length };
 }
 
-export function listBans() { return [...bans]; }
+export function listBans() { pruneExpired(); return [...bans]; }
