@@ -276,9 +276,13 @@ async function launchBrowser(url, opts) {
   page.on("console", (m) => {
     if (m.type() === "error") console.error("[scene console]", m.text());
   });
-  await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
-  await page.waitForFunction("window.__sceneReady === true", { timeout: 10000 }).catch(() => {
-    console.warn("[scene] __sceneReady not observed within 10s; continuing");
+  // domcontentloaded, not networkidle2: the scene is fully local, and we gate
+  // on the explicit __sceneReady handshake below anyway — waiting for network
+  // idle only adds boot latency (and a hang risk if the page ever fetches
+  // something remote). Mirrors hyperframes' capture-navigation fix.
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.waitForFunction("window.__sceneReady === true", { timeout: 15000 }).catch(() => {
+    console.warn("[scene] __sceneReady not observed within 15s; continuing (boot directives will retry)");
   });
   console.log(`[browser] scene loaded (${headless ? "headless" : "headful"} ${width}x${height}@${dsf || 1}x):`, url);
 }
@@ -300,9 +304,28 @@ async function probeGPU() {
   }
 }
 
+// Boot directives MUST land, but the scene may still be initializing when we
+// fire them — a miss used to be silently swallowed (no intro screen, wrong fps
+// hints). Retry until SceneAPI accepts. (Our analog of hyperframes' "replay
+// bridge state on iframe ready" handshake-race fix.)
+async function applyWhenReady(label, attempt, tries = 24, delayMs = 500) {
+  for (let i = 0; i < tries; i++) {
+    const ok = await attempt().catch(() => false);
+    if (ok) return true;
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  console.warn(`[boot] ${label} never applied — scene did not become ready in ${(tries * delayMs) / 1000}s`);
+  return false;
+}
+
 // tell the scene which render mode it's in (toggles blend modes, fps, warning)
 async function applyRenderMode(mode, fps) {
-  await page.evaluate((m, f) => window.SceneAPI && window.SceneAPI.setRenderMode && window.SceneAPI.setRenderMode({ mode: m, fps: f }), mode, fps).catch(() => {});
+  return applyWhenReady("setRenderMode", () =>
+    page.evaluate((m, f) => {
+      if (!window.SceneAPI || typeof window.SceneAPI.setRenderMode !== "function") return false;
+      window.SceneAPI.setRenderMode({ mode: m, fps: f });
+      return true;
+    }, mode, fps));
 }
 
 /**
@@ -411,8 +434,15 @@ async function main() {
     }
   }, 30000).unref();
 
-  // optionally come up on the "starting shortly" standby screen
-  if (config.standbyOnBoot) await applyDirective({ action: "setStandby", params: { mode: "intro" } }).catch(() => {});
+  // optionally come up on the "starting shortly" standby screen — retried,
+  // because booting straight into the bare show (directive lost while the
+  // scene initialized) is exactly what an operator can't notice from logs
+  if (config.standbyOnBoot) {
+    await applyWhenReady("setStandby(intro)", async () => {
+      const out = await applyDirective({ action: "setStandby", params: { mode: "intro" } });
+      return !!out?.ok;
+    });
+  }
 
   if (config.dryRun) {
     console.log("[stream] DRY_RUN=true → not pushing. Scene is rendering only.");

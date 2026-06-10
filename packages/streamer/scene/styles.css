@@ -5,6 +5,19 @@
    Everything is sized against a fixed 1280x720 stage to match the encoder.
 =========================================================================== */
 
+/* Vendored Inter (variable, OFL — see vendor/inter/LICENSE.txt) so the
+   broadcast typography is deterministic: the container image has no Inter,
+   and without this the whole scene silently fell back to Liberation Sans.
+   (Mirrors hyperframes' font-embedding pipeline: compositions carry their
+   own fonts instead of trusting the render host.) */
+@font-face {
+  font-family: "Inter";
+  src: url("vendor/inter/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
