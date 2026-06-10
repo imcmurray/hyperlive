@@ -433,7 +433,12 @@
     vote: ["vote"],
     sc: ["superchat"],
   };
+  // a superchat comment shows as ONE gold row: the recognition event. Its
+  // pipeline follow-ups (applied / skipped / music_request…) fold into that
+  // row's detail instead of appearing as second lines.
+  let scIds = new Set();
   function passes(e) {
+    if (e.stage !== "superchat" && e.comment?.id && scIds.has(e.comment.id)) return false;
     // the 💰 chip also matches any row whose comment carried money
     if (filter === "sc") {
       if (!(e.stage === "superchat" || e.comment?.superchat)) return false;
@@ -447,16 +452,27 @@
   // escape first, then turn surviving URLs into links (quotes are already
   // entity-escaped, so the href attribute can't be broken out of)
   const linkify = (t) => esc(t).replace(/https?:\/\/[^\s<]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+  const followSummary = (e) =>
+    `→ ${(CHIP[e.stage] || [])[1] || e.stage}` +
+    (e.result?.title ? `: ${e.result.title}` : e.reason ? ` (${e.reason})` : e.directive ? `: ${e.directive.action}` : "");
   function buildRow(e) {
     const c = e.comment || {};
     const [cls, label] = CHIP[e.stage] || ["c-skipped", e.stage || "?"];
-    const detail = e.reason || e.error || e.result?.reason || (e.directive ? e.directive.action : "") || e.request || "";
+    let detail = e.reason || e.error || e.result?.reason || (e.directive ? e.directive.action : "") || e.request || "";
     // music rows: resolved song name + artist ride in the trailing column
-    const song = e.stage?.startsWith("music") && e.result?.title
+    let song = e.stage?.startsWith("music") && e.result?.title
       ? `♪ ${e.result.title} — ${e.result.artist || "?"}` : "";
+    // superchat rows absorb their comment's later pipeline events (rebuild path)
+    if (e.stage === "superchat" && c.id) {
+      const fu = events.filter((x) => x.seq > e.seq && x.comment?.id === c.id);
+      if (fu.length) detail = followSummary(fu[fu.length - 1]);
+      const mus = fu.find((x) => x.result?.title);
+      if (mus) song = `♪ ${mus.result.title} — ${mus.result.artist || "?"}`;
+    }
     const row = document.createElement("div");
     row.className = "row" + (c.superchat ? " sc" : "");
     row.dataset.seq = e.seq;
+    if (e.stage === "superchat" && c.id) row.dataset.cid = c.id;
     const bannable = c.author && !["banned", "banned_by_mod", "unbanned"].includes(e.stage);
     // a cooldown skip can be replayed by a moderator (click the chip)
     const replayable = e.stage === "skipped" && /cooldown/.test(detail);
@@ -478,6 +494,15 @@
     feed.replaceChildren(...events.filter(passes).slice(-300).map(buildRow));
     feedwrap.scrollTop = feedwrap.scrollHeight;
   }
+  // live-update a superchat row when a folded follow-up arrives
+  function updateScRow(e) {
+    const row = feed.querySelector(`.row[data-cid="${CSS.escape(e.comment.id)}"]`);
+    if (!row) return;
+    let s = row.querySelector(".sc-follow");
+    if (!s) { s = document.createElement("small"); s.className = "sc-follow"; row.querySelector(".msg").appendChild(s); }
+    s.textContent = " " + followSummary(e);
+    if (e.result?.title) row.querySelector(".song").textContent = `♪ ${e.result.title} — ${e.result.artist || "?"}`;
+  }
 
   // browser notifications for held items (gesture-gated permission request)
   let notifyOk = false;
@@ -498,6 +523,16 @@
           if (notifyOk) new Notification("HyperLive — held for review", { body: `${e.kind || "card"} from ${e.comment?.author || "?"}` });
           refresh();
         } else if (["approved", "rejected_by_mod", "banned_by_mod", "unbanned"].includes(e.stage)) refresh();
+        // superchat folding: remember recognized comment ids; their follow-up
+        // events update the existing gold row instead of adding a second one
+        const cid = e.comment?.id;
+        if (e.stage === "superchat" && cid) {
+          scIds.add(cid);
+          if (scIds.size > 600) scIds = new Set(events.filter((x) => x.stage === "superchat" && x.comment?.id).map((x) => x.comment.id));
+        } else if (cid && scIds.has(cid)) {
+          if (!paused && !hoverPause && !menuLock) updateScRow(e);
+          return;
+        }
         if (paused) { bufferedWhilePaused++; $("#fpause").textContent = `▶ RESUME (${bufferedWhilePaused})`; return; }
         if (hoverPause || menuLock) { missedWhileHover = true; return; } // frozen under the cursor / open menu
         if (passes(e)) appendRow(e);
