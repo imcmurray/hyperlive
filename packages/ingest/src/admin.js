@@ -115,17 +115,55 @@ export function startAdmin({ log = console.log } = {}) {
       }
 
       if (route === "GET /admin/state") {
-        const [health, music] = await Promise.all([
+        const [health, music, queue] = await Promise.all([
           proxyGet(`${config.controlBase}/health`),
           proxyGet(`${config.controlBase}/music/status`),
+          proxyGet(`${config.controlBase}/music/queue`),
         ]);
         return json(res, 200, {
           ok: true,
           bans: listBans(),
           pending: [...pending.values()],
-          health, music,
+          health, music, queue,
           holdCards: config.holdCards,
         });
+      }
+
+      // ---- show + music transport: the live.sh verbs, dashboard-clickable ----
+      // (container/ingest process lifecycle stays in live.sh — this server
+      // can't restart its own process or drive docker)
+      if (route === "POST /admin/show") {
+        const b = await readJson(req);
+        const action = String(b.action || "");
+        const post = (path, body) => fetch(`${config.controlBase}${path}`, {
+          method: "POST", signal: AbortSignal.timeout(8000),
+          headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+        }).then((r) => r.json()).catch((e) => ({ ok: false, error: e.message }));
+        let out;
+        if (action === "onair") out = await post("/onair", { seconds: Number(b.seconds) || 10 });
+        else if (action === "outro") out = await post("/outro", {});
+        else if (action === "standby") {
+          const mode = ["intro", "break", "technical", "off"].includes(b.mode) ? b.mode : "off";
+          out = await post("/mutate", { action: "setStandby", params: { mode } });
+        } else return json(res, 400, { ok: false, error: "action must be onair|outro|standby" });
+        publishFeed({ stage: "show_control", comment: { author: "operator", text: action + (b.mode ? `:${b.mode}` : "") } });
+        return json(res, 200, out);
+      }
+
+      if (route === "POST /admin/music") {
+        const b = await readJson(req);
+        const op = String(b.op || "");
+        const post = (path, body) => fetch(`${config.controlBase}/music${path}`, {
+          method: "POST", signal: AbortSignal.timeout(8000),
+          headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}),
+        }).then((r) => r.json()).catch((e) => ({ ok: false, error: e.message }));
+        let out;
+        if (op === "skip") out = await post("/skip");
+        else if (op === "fade") out = await post("/fade", { to: Number(b.to), ms: Number(b.ms) || 3000 });
+        else if (op === "mode") out = await post("/mode", { mode: b.mode === "intro" ? "intro" : "live" });
+        else return json(res, 400, { ok: false, error: "op must be skip|fade|mode" });
+        publishFeed({ stage: "music_control", comment: { author: "operator", text: op + (b.mode ? `:${b.mode}` : b.to !== undefined ? `→${b.to}%` : "") } });
+        return json(res, 200, out);
       }
 
       if (route === "POST /admin/bans") {

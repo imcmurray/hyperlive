@@ -107,6 +107,20 @@
   }
   #ban-form button:hover, .btn:hover { background: #1e2c1e; }
 
+  /* show/music transport (the live.sh verbs) */
+  .ctl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px; }
+  .ctl-grid button {
+    background: #131a13; border: 1px solid #2c3c2c; color: var(--txt);
+    font: 700 10px var(--mono); letter-spacing: .1em; padding: 8px 4px;
+    cursor: pointer; border-radius: 3px;
+  }
+  .ctl-grid button:hover { background: #1e2c1e; box-shadow: 0 0 8px rgba(74,222,128,.15); }
+  .ctl-grid button.live { grid-column: span 2; color: var(--green); border-color: #234c32; }
+  .ctl-grid button.danger { color: #f1b8b8; border-color: #532222; background: #170d0d; }
+  .ctl-grid button.danger:hover { background: #2a1010; box-shadow: 0 0 8px rgba(248,113,113,.2); }
+  #upnext { padding: 4px 12px 10px; font-size: 11px; color: var(--dim); }
+  #upnext b { color: var(--cyan); font-weight: 400; }
+
   /* ---- center: the live feed ---- */
   #feed { padding: 6px 0; }
   .row {
@@ -192,6 +206,23 @@
     <div class="stat"><div class="k">PHASE</div><div class="v" id="s-phase">—</div></div>
     <div class="stat"><div class="k">NOW PLAYING</div><div class="v cyan" id="s-song">—</div></div>
     <div class="stat"><div class="k">HOLD MODE</div><div class="v" id="s-hold">—</div></div>
+    <h2>SHOW CONTROL</h2>
+    <div class="ctl-grid" id="show-ctl">
+      <button data-show="onair" class="live">▶ GO ON AIR (10s)</button>
+      <button data-show="standby:break">⏸ BREAK</button>
+      <button data-show="standby:technical">⚠ TECH</button>
+      <button data-show="standby:intro">⏮ INTRO</button>
+      <button data-show="standby:off">● RESUME</button>
+      <button data-show="outro" class="danger" style="grid-column:span 2">⏹ OUTRO — SIGN OFF</button>
+    </div>
+    <h2>MUSIC</h2>
+    <div class="ctl-grid" id="music-ctl">
+      <button data-music="skip">⏭ SKIP</button>
+      <button data-music="mode">⇄ <span id="m-mode">MODE</span></button>
+      <button data-music="fadeout">FADE OUT</button>
+      <button data-music="fadein">FADE IN</button>
+    </div>
+    <div id="upnext"></div>
     <h2>BAN LIST</h2>
     <div class="scroll" id="bans"></div>
     <form id="ban-form">
@@ -287,6 +318,12 @@
     $("#s-song").textContent = st.music?.title ? `${st.music.title} — ${st.music.artist}` : "—";
     $("#s-hold").textContent = st.holdCards ? "HOLD FOR REVIEW" : "AUTO (vision gate)";
     $("#s-hold").className = "v " + (st.holdCards ? "red" : "green");
+    musicMode = st.music?.mode || "live";
+    $("#m-mode").textContent = musicMode === "intro" ? "→ LIVE" : "→ INTRO";
+    const nexts = [...(st.queue?.queue || []), ...(st.queue?.rotation || [])].slice(0, 3);
+    $("#upnext").innerHTML = nexts.length
+      ? "UP NEXT " + nexts.map((t) => `<b>${esc(t.title)}</b>`).join(" · ")
+      : "";
 
     const bans = $("#bans");
     bans.innerHTML = (st.bans || []).map((b) =>
@@ -305,6 +342,27 @@
   }
   refresh();
   setInterval(refresh, 5000);
+
+  // ---- show + music transport (the live.sh verbs) ----
+  let musicMode = "live";
+  $("#show-ctl").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-show]");
+    if (!b) return;
+    const [action, mode] = b.dataset.show.split(":");
+    if (action === "outro" && !confirm("Run the outro? Credits roll + music fades out.")) return;
+    const body = action === "standby" ? { action, mode } : { action, seconds: 10 };
+    api("/admin/show", body).then((r) => { toast(r.ok !== false ? `show → ${action}${mode ? ":" + mode : ""}` : `failed: ${r.error || "?"}`); setTimeout(refresh, 800); });
+  });
+  $("#music-ctl").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-music]");
+    if (!b) return;
+    const op = b.dataset.music;
+    const body = op === "skip" ? { op: "skip" }
+      : op === "fadeout" ? { op: "fade", to: 0, ms: 4000 }
+      : op === "fadein" ? { op: "fade", to: 100, ms: 2000 }
+      : { op: "mode", mode: musicMode === "live" ? "intro" : "live" };
+    api("/admin/music", body).then((r) => { toast(r.ok !== false ? `music: ${op}` : `music off / failed`); setTimeout(refresh, 800); });
+  });
 
   $("#bans").addEventListener("click", (ev) => {
     const b = ev.target.closest("button[data-unban]");
