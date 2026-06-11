@@ -962,7 +962,7 @@
 
   // ---- STAGES view: presets for the main video + live switching ----
   let lastStages = [], editStageId = null, stageKind = "all", stageFeatKeys = [], stageFeatLabels = {}, stageActiveId = "scene";
-  const FEAT_SHORT = { votes: "vote", superchats: "super", effects: "fx", welcome: "welcome", popups: "popups", automations: "auto" };
+  const FEAT_SHORT = { votes: "vote", superchats: "super", effects: "fx", welcome: "welcome", popups: "popups", directives: "chat→scene", automations: "auto" };
   const featPills = (s) => stageFeatKeys.length
     ? `<div class="feats">${stageFeatKeys.map((k) => `<span class="feat ${s.features && s.features[k] ? "on" : ""}">${FEAT_SHORT[k] || k}</span>`).join("")}</div>` : "";
   // theme accent colors (mirror packages/streamer/scene/styles.css) → scene

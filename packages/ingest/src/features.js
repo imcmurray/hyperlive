@@ -8,13 +8,14 @@
 // ambient effects), which is why they live here and not in the scene: switching
 // stages re-shapes the interaction layer, not just the picture.
 
-export const FEATURE_KEYS = ["votes", "superchats", "effects", "welcome", "popups", "automations"];
+export const FEATURE_KEYS = ["votes", "superchats", "effects", "welcome", "popups", "directives", "automations"];
 export const FEATURE_LABELS = {
   votes: "Theme voting",
   superchats: "Superchat cards",
   effects: "Ambient effects",
   welcome: "Welcome messages",
   popups: "Chat reaction popups",
+  directives: "Chat → scene (shoutouts)",
   automations: "Custom automations",
 };
 

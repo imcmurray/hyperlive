@@ -217,6 +217,16 @@ async function handle(comment) {
   // director, no cooldown — meant to feel immediate)
   const fired = config.reactions ? await reactions.handle(comment).catch(() => []) : [];
 
+  // The main director turns a chat comment into a vetted scene directive — the
+  // shoutout cards + chat-driven scene moves. A stage can switch this off so
+  // regular chat doesn't steer the scene (superchats are recognized separately
+  // and stay on their own toggle).
+  if (!getFeature("directives")) {
+    if (fired.length) reportDelay(comment); // a reaction may still have landed
+    await audit({ stage: "skipped", comment, reason: "chat→scene off (stage)" });
+    return;
+  }
+
   const dec = await director.decide(comment);
   // a superchat already got its recognition card — don't double-shoutout
   if (!dec.skip && dec.directive.action === "addShoutout" && scRecognized) {
