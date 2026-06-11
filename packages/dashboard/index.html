@@ -961,7 +961,7 @@
   });
 
   // ---- STAGES view: presets for the main video + live switching ----
-  let lastStages = [], editStageId = null, stageKind = "all", stageFeatKeys = [], stageFeatLabels = {};
+  let lastStages = [], editStageId = null, stageKind = "all", stageFeatKeys = [], stageFeatLabels = {}, stageActiveId = "scene";
   const FEAT_SHORT = { votes: "vote", superchats: "super", effects: "fx", welcome: "welcome", popups: "popups" };
   const featPills = (s) => stageFeatKeys.length
     ? `<div class="feats">${stageFeatKeys.map((k) => `<span class="feat ${s.features && s.features[k] ? "on" : ""}">${FEAT_SHORT[k] || k}</span>`).join("")}</div>` : "";
@@ -1019,7 +1019,7 @@
         <div class="sub">${stageSummary(s)}</div>
         ${featPills(s)}
       </div>
-      <button class="btn go" data-apply="${esc(s.id)}" title="switch the LIVE stage to this now"${live ? " disabled" : ""}>${live ? "ON AIR" : "GO LIVE"}</button>
+      <button class="btn go" data-apply="${esc(s.id)}" title="${live ? "re-apply this stage to the live broadcast" : "switch the LIVE stage to this now"}">${live ? "↻ RE-APPLY" : "GO LIVE"}</button>
       <button class="btn" data-spreview="${esc(s.id)}" title="preview off-air in the twin (no broadcast risk)">▶ preview</button>
       <button class="btn" data-sedit="${esc(s.id)}" title="edit this stage">edit</button>
       ${s.builtin
@@ -1035,6 +1035,7 @@
     const r = await api("/admin/stages").catch(() => null);
     if (!r?.ok || view !== "stages") return;
     lastStages = [...r.builtins, ...r.custom];
+    stageActiveId = r.active;
     stageFeatKeys = r.featureKeys || [];
     stageFeatLabels = r.featureLabels || {};
     editStageId = null; // a fresh render clears any in-progress edit
@@ -1166,8 +1167,13 @@
       };
       if (editStageId) body.id = editStageId; // edit instead of add
       const r = await api("/admin/stages/custom", body);
-      toast(r.ok ? (editStageId ? "stage saved" : `added: ${r.stage.label}`) : `failed: ${r.error || "?"}`);
-      if (r.ok) loadStagesView();
+      // if we just edited the stage that's LIVE, re-apply it so the broadcast
+      // reflects the change immediately (otherwise the edit is saved but the
+      // live stage doesn't update — and its button can't be "GO LIVE"-d)
+      const wasActive = editStageId && editStageId === stageActiveId;
+      if (r.ok && wasActive) { await api("/admin/stages/apply", { id: editStageId }); }
+      toast(r.ok ? (editStageId ? (wasActive ? "saved + re-applied live" : "stage saved") : `added: ${r.stage.label}`) : `failed: ${r.error || "?"}`);
+      if (r.ok) { refresh(); loadStagesView(); }
     }
   });
   $("#stages-list").addEventListener("change", async (ev) => {
