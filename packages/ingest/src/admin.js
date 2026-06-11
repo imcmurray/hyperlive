@@ -268,6 +268,27 @@ export function startAdmin({ log = console.log } = {}) {
         return json(res, 200, out);
       }
 
+      // ---- stage source (overlay mode): operator picks the main-stage video ----
+      if (route === "POST /admin/stage") {
+        const b = await readJson(req);
+        const kind = String(b.kind || "none").toLowerCase();
+        if (!["none", "off", "clear", "youtube", "yt", "video", "image"].includes(kind)) {
+          return json(res, 400, { ok: false, error: "kind must be none|youtube|video|image" });
+        }
+        // pass only the vetted fields; the scene re-validates id/url + builds via DOM
+        const params = { kind };
+        if (b.id) params.id = String(b.id).slice(0, 2048);
+        if (b.url) params.url = String(b.url).slice(0, 2048);
+        if (b.muted !== undefined) params.muted = !!b.muted;
+        const out = await fetch(`${config.controlBase}/mutate`, {
+          method: "POST", signal: AbortSignal.timeout(8000),
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "setStageSource", params }),
+        }).then((r) => r.json()).catch((e) => ({ ok: false, error: e.message }));
+        publishFeed({ stage: "stage_source", comment: { author: "operator", text: `source → ${kind}${params.id ? `:${params.id}` : params.url ? `:${params.url}` : ""}` } });
+        return json(res, 200, out);
+      }
+
       if (route === "POST /admin/bans") {
         const b = await readJson(req);
         const action = String(b.action || "ban");

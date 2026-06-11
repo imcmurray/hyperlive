@@ -361,6 +361,17 @@
       <button data-music="fadein">FADE IN</button>
     </div>
     <div id="upnext"></div>
+    <h2>STAGE SOURCE</h2>
+    <form id="stage-form" style="padding:8px">
+      <input id="stage-input" placeholder="YouTube URL or id (overlay mode)" autocomplete="off">
+      <div class="ctl-grid" style="padding:6px 0 0">
+        <button data-stage="youtube">▶ SET SOURCE</button>
+        <button data-stage="none" class="danger">✕ CLEAR</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:10px;opacity:.7;padding:4px 0 0">
+        <input type="checkbox" id="stage-muted" checked style="width:auto"> muted (browser audio isn't captured yet)
+      </label>
+    </form>
     <h2>BAN LIST</h2>
     <div class="scroll" id="bans"></div>
     <form id="ban-form">
@@ -433,7 +444,7 @@
     banned_by_mod: ["c-mod", "MOD BAN"], unbanned: ["c-mod", "UNBAN"], kill_switch: ["c-mod", "KILL"],
     error: ["c-blocked", "ERROR"], card_cooldown: ["c-skipped", "cooldn"], approve_failed: ["c-blocked", "AIRFAIL"],
     muted: ["c-held", "MUTED"], muted_by_mod: ["c-mod", "MOD MUTE"], unmuted: ["c-mod", "UNMUTE"],
-    show_control: ["c-mod", "SHOW"], music_control: ["c-mod", "MUSIC"],
+    show_control: ["c-mod", "SHOW"], music_control: ["c-mod", "MUSIC"], stage_source: ["c-mod", "STAGE"],
     superchat: ["c-sc", "★ SUPER"], automation: ["c-mod", "AUTO"], sc_ack: ["c-sc", "CALLED OUT"],
   };
 
@@ -742,6 +753,22 @@
       : op === "fadein" ? { op: "fade", to: 100, ms: 2000 }
       : { op: "mode", mode: musicMode === "live" ? "intro" : "live" };
     api("/admin/music", body).then((r) => { toast(r.ok !== false ? `music: ${op}` : `music off / failed`); setTimeout(refresh, 800); });
+  });
+
+  // ---- stage source (overlay mode) ----
+  $("#stage-form").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-stage]");
+    if (!b) return;
+    ev.preventDefault();
+    const kind = b.dataset.stage;
+    if (kind === "none") {
+      api("/admin/stage", { kind: "none" }).then((r) => { toast(r.ok !== false ? "stage source cleared" : `failed: ${r.error || "?"}`); });
+      return;
+    }
+    const val = $("#stage-input").value.trim();
+    if (!val) { toast("paste a YouTube URL or id first"); return; }
+    api("/admin/stage", { kind: "youtube", url: val, id: val, muted: $("#stage-muted").checked })
+      .then((r) => { toast(r.ok !== false ? `stage source → ${r.id || "set"}` : `failed: ${r.error || "?"}`); });
   });
 
   $("#bans").addEventListener("click", (ev) => {

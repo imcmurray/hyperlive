@@ -42,6 +42,9 @@ const ALLOWED_ACTIONS = new Set([
   "status",
   "mutateElement", // Tier 1: clamped ops against registry elements only
   "superchatCard", // golden paid-message recognition (deterministic, ingest-fired)
+  "setStageSource", // overlay mode: external video/image UNDER the scene. OPERATOR
+                    // only — reachable via the loopback /mutate (dashboard), NOT
+                    // emitted by the director, so viewers can't set the source.
 ]);
 // NB: showCard/takeover/clearCards are deliberately NOT in this allowlist —
 // model-authored markup may only enter through POST /card and /takeover below,

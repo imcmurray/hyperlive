@@ -148,6 +148,38 @@ const good = await post("/mutate", { action: "setHeadline", params: { text: "hel
 if (good.status === 200 && good.body.ok) ok("mutate.allows-vetted-action");
 else fail("mutate.allows-vetted-action", `status ${good.status} ${JSON.stringify(good.body)}`);
 
+// 8) setStageSource is operator-only, but it builds a real <iframe>/<video> —
+//    so its id/URL whitelist must reject anything but a clean youtube id or an
+//    http(s) url, and must never inject markup or a javascript: source.
+const badSources = [
+  { kind: "youtube", id: '"></iframe><script>window.parent.__sentinel("stage-yt")</script>' },
+  { kind: "youtube", id: "../../evil" },
+  { kind: "video", url: "javascript:window.parent.__sentinel('stage-js')" },
+  { kind: "image", url: "data:text/html,<script>window.parent.__sentinel('stage-data')</script>" },
+];
+let allRejected = true;
+for (const s of badSources) {
+  const r = await call("setStageSource", s);
+  if (!r || r.ok !== false) allRejected = false;
+}
+await new Promise((r) => setTimeout(r, 200));
+// no iframe/video should have been created from any rejected payload, and the
+// body must not be in sourced mode
+const stageState = await page.evaluate(() => ({
+  children: document.querySelectorAll("#stage-source iframe, #stage-source video, #stage-source .src-img").length,
+  sourced: document.body.classList.contains("stage-sourced"),
+}));
+if (allRejected && stageState.children === 0 && !stageState.sourced) ok("stageSource.rejects-injection");
+else fail("stageSource.rejects-injection", `rejected=${allRejected} children=${stageState.children} sourced=${stageState.sourced}`);
+
+// a clean youtube id IS accepted (positive control — the whitelist isn't just
+// blanket-refusing) but loads youtube-nocookie embed, sandboxed by the browser
+const goodYt = await call("setStageSource", { kind: "youtube", id: "dQw4w9WgXcQ" });
+const ytSrc = await page.evaluate(() => { const f = document.querySelector("#stage-source iframe"); return f ? f.src : ""; });
+if (goodYt && goodYt.ok && /youtube-nocookie\.com\/embed\/dQw4w9WgXcQ\?/.test(ytSrc)) ok("stageSource.accepts-clean-id");
+else fail("stageSource.accepts-clean-id", `ok=${JSON.stringify(goodYt)} src=${ytSrc}`);
+await call("setStageSource", { kind: "none" }); // reset
+
 // ---- the verdict -------------------------------------------------------------
 await new Promise((r) => setTimeout(r, 600)); // final settle for any delayed exec
 const escapes = await pwned();

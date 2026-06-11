@@ -1430,6 +1430,79 @@
 
     // show/hide the CPU-rendering warning banner (operator can dismiss it)
     renderWarning(p = {}) { showWarning(p.show !== false); return { show: p.show !== false }; },
+
+    // ---- Overlay mode: put an external source UNDER the scene -------------
+    // OPERATOR action (not viewer-reachable): pick what's on the main stage —
+    // a YouTube video, a direct video/image URL, or none (back to the themed
+    // background). The HyperLive scene becomes a transparent overlay on top.
+    // Elements are built with DOM APIs + a strict id/URL whitelist, never
+    // innerHTML, so even this operator door can't smuggle markup into the page.
+    setStageSource(p = {}) {
+      const host = $("#stage-source");
+      if (!host) return { ok: false, error: "no stage-source layer" };
+      const kind = String(p.kind || "none").toLowerCase();
+      const scrim = host.querySelector(".src-scrim");
+      // tear down any previous source (stops a playing iframe/video cleanly)
+      for (const el of [...host.children]) { if (el !== scrim) el.remove(); }
+
+      if (kind === "none" || kind === "off" || kind === "clear") {
+        document.body.classList.remove("stage-sourced");
+        return { ok: true, kind: "none" };
+      }
+
+      const httpUrl = (u) => { try { const x = new URL(String(u)); return (x.protocol === "https:" || x.protocol === "http:") ? x.href : null; } catch { return null; } };
+
+      if (kind === "youtube" || kind === "yt") {
+        // accept a bare 11-char id or any youtube URL we can pull the id from
+        let id = String(p.id || "");
+        if (!/^[A-Za-z0-9_-]{11}$/.test(id)) {
+          const m = String(p.url || p.id || "").match(/(?:v=|youtu\.be\/|embed\/|live\/|shorts\/)([A-Za-z0-9_-]{11})/);
+          id = m ? m[1] : "";
+        }
+        if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return { ok: false, error: "youtube id/url required" };
+        const mute = p.muted === false ? 0 : 1; // muted by default (browser audio isn't captured yet)
+        const f = document.createElement("iframe");
+        f.setAttribute("allow", "autoplay; encrypted-media");
+        f.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+        f.setAttribute("frameborder", "0");
+        // params are fixed/clamped — id is the only variable and it's whitelisted
+        const qs = new URLSearchParams({
+          autoplay: "1", mute: String(mute), controls: "0", modestbranding: "1",
+          rel: "0", iv_load_policy: "3", disablekb: "1", fs: "0", playsinline: "1",
+          loop: "1", playlist: id, // single-video loop requires playlist=id
+        });
+        f.src = `https://www.youtube-nocookie.com/embed/${id}?${qs.toString()}`;
+        host.appendChild(f);
+        document.body.classList.add("stage-sourced");
+        return { ok: true, kind: "youtube", id, muted: !!mute };
+      }
+
+      if (kind === "video") {
+        const url = httpUrl(p.url);
+        if (!url) return { ok: false, error: "http(s) video url required" };
+        const v = document.createElement("video");
+        v.src = url;
+        v.autoplay = true; v.loop = p.loop !== false; v.playsInline = true;
+        v.muted = p.muted !== false; // muted by default → reliable autoplay
+        v.play?.().catch(() => {});
+        host.appendChild(v);
+        document.body.classList.add("stage-sourced");
+        return { ok: true, kind: "video", url, muted: v.muted };
+      }
+
+      if (kind === "image") {
+        const url = httpUrl(p.url);
+        if (!url) return { ok: false, error: "http(s) image url required" };
+        const d = document.createElement("div");
+        d.className = "src-img";
+        d.style.backgroundImage = `url("${encodeURI(url)}")`;
+        host.appendChild(d);
+        document.body.classList.add("stage-sourced");
+        return { ok: true, kind: "image", url };
+      }
+
+      return { ok: false, error: "kind must be none|youtube|video|image" };
+    },
   };
 
   window.SceneAPI = SceneAPI;

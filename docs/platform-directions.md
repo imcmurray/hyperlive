@@ -233,22 +233,43 @@ touches the overlay scene through the same allowlist + sandbox (§7,
 directive can do is misbehave inside a transparent overlay, never the operator's
 game or camera feed, which the interaction stack can't address at all.
 
-**Build order when this gets real:**
-1. **Scene overlay mode** — a flag that renders the scene over transparency
-   (no bg fill, no standby fill); verify alpha survives the screencast/encode
-   path (the GPU path already emits JPEG — overlay needs an alpha-capable
-   capture, e.g. a PNG/`webm`-alpha screencast or a CSS-keyed color).
-2. **Compositor inputs** — generalize the streamer's single capture into a
-   small source list: `main` (game/camera/desktop/scene) + `overlay` (scene),
-   composited with `ffmpeg -filter_complex overlay`. Main sources arrive as
-   their own RTMP ingest, a v4l2 device, or an x11grab region.
-3. **Source as a pack** — "game overlay", "event camera", "just-chatting" each
-   become packs in the §2 sense: a source adapter + the overlay widgets that
-   suit it, reusing the whole interaction stack unchanged.
+**Two places to composite — and we built the cheap one first.**
+
+- **In-browser (built).** For any source the browser can render — a **YouTube
+  video**, a direct video/HLS URL, an image — the simplest path is to put the
+  source *inside the scene page* as a bottom layer and make the themed
+  background transparent. The existing screencast captures the composite as-is:
+  **zero ffmpeg changes, no alpha-capture problem.** This is the
+  `setStageSource` action (operator-only — allowlisted on `/mutate`, never
+  emitted by the director, so viewers can't set the source). A cross-origin
+  YouTube embed is an out-of-process iframe, and the CDP screencast composites
+  OOPIFs fine (the same path Tier-2/3 cards already rely on). Verified headless:
+  the video plays and is captured, the scene rides on top, the 11-char id
+  whitelist rejects injection. See `docs/overlay-mode.png`.
+- **In-ffmpeg (future).** For sources the browser *can't* host — a live game
+  capture, a hardware camera, another app's window — generalize the streamer's
+  single capture into a source list: `main` (v4l2 / RTMP ingest / x11grab
+  region) under `overlay` (the scene rendered over transparency), composited
+  with `ffmpeg -filter_complex overlay`. This needs the alpha-capable capture
+  the in-browser path sidesteps (a PNG/`webm`-alpha screencast or a CSS color
+  key). Same `setStageSource`-shaped control surface; different plumbing behind
+  it.
+
+**Then: source as a pack.** "YouTube co-watch", "game overlay", "event camera",
+"just-chatting" each become packs in the §2 sense — a source choice + the
+overlay widgets that suit it, reusing the whole interaction stack unchanged.
+
+**Still open:** *audio.* The in-browser path captures the source's **picture**
+but not its **sound** — browser audio isn't routed into the ffmpeg capture yet
+(the YouTube embed autoplays muted). Capturing it means teeing the page's
+PulseAudio output into the encoder, which the music-mode sink plumbing already
+does for the DJ and can be adapted for. Until then, overlay mode is silent (or
+runs under the existing music bed).
 
 This is the cleanest answer to *"how does someone stream **their** content on
 HyperLive?"* — they bring the stage; HyperLive brings the moderated crowd layer
-and the console to run it.
+and the console to run it. **Status (2026-06-11): in-browser overlay prototyped
+and verified; ffmpeg compositing + audio are the next steps.**
 
 ---
 

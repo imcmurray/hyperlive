@@ -24,6 +24,12 @@
       data-width="1280"
       data-height="720"
     >
+      <!-- ====== stage source: an optional external video/image UNDER the scene.
+           When set (setStageSource), the themed background goes transparent and
+           the HyperLive scene becomes an OVERLAY on top of this — game capture,
+           an event camera, or (here) a YouTube video. Operator-driven only. ==== -->
+      <div id="stage-source" aria-hidden="true"><div class="src-scrim"></div></div>
+
       <!-- ====== background: double-buffered for crossfade transitions ====== -->
       <div id="bg" aria-hidden="true">
         <!-- song cover as a dim, drifting full-stage backdrop (under theme + fx);

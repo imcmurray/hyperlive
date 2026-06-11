@@ -43,6 +43,26 @@ and no GPU is assumed (pure CPU rendering). When you're done: `Ctrl-C`.
   the project's one hard invariant, and it's enforced by a CI gate — see
   **[Safety & the adversarial test suite](#safety--the-adversarial-test-suite)**.
 
+## Overlay mode — stream *anything* under the scene
+
+The interaction stack (chat → moderation → directives, the dashboard,
+automations, superchats, bans) is independent of *what's on the main video*.
+So the scene can become a **transparent overlay** on top of an external
+source — a YouTube video, a direct video/HLS URL, an image (and, next, a game
+capture or camera). One operator action sets it:
+
+```bash
+scripts/mutate.sh '{"action":"setStageSource","params":{"kind":"youtube","id":"5uZa3-RMFos"}}'
+```
+
+[![Overlay mode — a YouTube video plays as the stage while the HyperLive scene rides on top](docs/overlay-mode.png)](docs/overlay-mode.png)
+
+<sub>A YouTube video as the stage, with the live HyperLive scene (kicker,
+gradient headline, rotating card, legibility scrim) composited on top — all in
+one capture. It's operator-only (never viewer-reachable), and the source is
+chosen from the dashboard's **STAGE SOURCE** control. Design notes:
+[`docs/platform-directions.md` §6](docs/platform-directions.md).</sub>
+
 ## Why this architecture (the key bet)
 
 HyperFrames is a *deterministic, offline* HTML→MP4 renderer — fantastic for

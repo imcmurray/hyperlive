@@ -153,6 +153,36 @@ html, body {
   --grid: rgba(0,255,240,0.06);
 }
 
+/* ===================== stage source (overlay mode) ====================== */
+/* The external source sits at the very bottom of the stack (under #bg). It's
+   empty/invisible until setStageSource fills it. When active, body.stage-sourced
+   makes the themed background transparent so the source shows through, and the
+   whole HyperLive scene (headline, cards, ticker, superchats, votes) rides on
+   top as an overlay. The screencast captures the composite — no ffmpeg/alpha
+   changes, the source is just another DOM layer. */
+#stage-source { position: absolute; inset: 0; z-index: 0; overflow: hidden; background: #000; opacity: 0; transition: opacity .5s ease; pointer-events: none; }
+#stage-source iframe, #stage-source video, #stage-source .src-img {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 100%; height: 100%; border: 0; object-fit: cover;
+}
+/* a YouTube iframe ignores object-fit; cover its 16:9 inside our 16:9 stage by
+   sizing to the larger dimension and centering (here they match, so 100%/100%) */
+#stage-source iframe { width: 100%; height: 100%; }
+#stage-source .src-img { background-size: cover; background-position: center; }
+/* legibility scrim over arbitrary footage: subtle top+bottom darkening so the
+   kicker/headline/cards stay readable. Off until a source is active. */
+#stage-source .src-scrim {
+  position: absolute; inset: 0; z-index: 1; opacity: 0; transition: opacity .6s ease; pointer-events: none;
+  background: linear-gradient(180deg, rgba(0,0,0,0.45) 0%, transparent 22%, transparent 64%, rgba(0,0,0,0.6) 100%);
+}
+body.stage-sourced #stage-source { opacity: 1; }
+body.stage-sourced #stage-source .src-scrim { opacity: 1; }
+/* drop the opaque themed background so the source reads through; keep accents
+   (headline gradient, card tints) which come from body.theme-*, not #bg */
+body.stage-sourced .bg-base { opacity: 0 !important; }
+body.stage-sourced #bg .aura, body.stage-sourced #bg .bg-grid,
+body.stage-sourced .cover-bg { opacity: 0 !important; }
+
 /* ============================ background ================================= */
 #bg { position: absolute; inset: 0; z-index: 0; }
 
