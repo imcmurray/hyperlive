@@ -26,10 +26,12 @@ done
 # ensure Xvfb is reaped if node exits
 trap 'kill ${XVFB_PID} 2>/dev/null || true' EXIT
 
-# --- audio: virtual PulseAudio sink the auto-DJ plays into and ffmpeg captures.
-# Only needed when streaming music. Exported XDG_RUNTIME_DIR is inherited by the
-# node orchestrator (and the ffmpeg/mpv children it spawns) so they find pulse.
-if [ "${AUDIO_MODE:-silent}" = "music" ]; then
+# --- audio: virtual PulseAudio sink the auto-DJ AND/OR the browser play into,
+# and ffmpeg captures. Needed for music (DJ) and source (a video stage source's
+# own audio) modes. Exported XDG_RUNTIME_DIR is inherited by the node
+# orchestrator (and the ffmpeg/mpv/Chromium children it spawns) so they find
+# pulse; setting the sink as DEFAULT is what routes Chromium's audio into it.
+if [ "${AUDIO_MODE:-silent}" = "music" ] || [ "${AUDIO_MODE:-silent}" = "source" ]; then
   export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/pulse-runtime}"
   # clear any stale pulse daemon/socket from a previous run so a `docker compose
   # restart` (which reuses the container + /tmp) brings the sink up cleanly
@@ -46,6 +48,10 @@ if [ "${AUDIO_MODE:-silent}" = "music" ]; then
     if pactl list short sinks 2>/dev/null | grep -q "${SINK}"; then echo "[start] sink '${SINK}' ready"; break; fi
     sleep 0.2
   done
+  # make the null sink the DEFAULT output so Chromium (and anything else that
+  # doesn't target a sink explicitly) plays INTO it — this is what lets a video
+  # stage source's audio be captured. mpv still targets the sink by name.
+  pactl set-default-sink "${SINK}" 2>/dev/null && echo "[start] default sink → ${SINK}" || true
 fi
 
 export DISPLAY="${DISPLAY_NUM}"

@@ -22,7 +22,9 @@ services:
       OUTPUT_FILE: /dev/null
       CAPTURE: screencast
       HW_ENCODE: "false"
-      AUDIO_MODE: silent
+      # source = capture the browser's audio, so an overlay video stage source
+      # (YouTube etc.) has sound. Captures silence until a sounded source is set.
+      AUDIO_MODE: source
       # boot on the "starting shortly" standby screen; the dashboard's
       # ▶ GO ON AIR button reveals the show (same flow as a real broadcast)
       STANDBY_ON_BOOT: "true"

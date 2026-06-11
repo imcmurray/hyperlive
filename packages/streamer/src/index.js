@@ -1,6 +1,7 @@
 import http from "node:http";
 import { readFile, watch, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -65,6 +66,38 @@ let monitorClients = 0;    // cap concurrent live-monitor viewers
 // Defaults to onair; set to intro on boot when STANDBY_ON_BOOT is on.
 let showState = "onair";
 
+// pull a clean 11-char YouTube id out of an id or any youtube URL
+function youtubeId(p = {}) {
+  const raw = String(p.id || "");
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  const m = String(p.url || p.id || "").match(/(?:v=|youtu\.be\/|embed\/|live\/|shorts\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : "";
+}
+
+// resolve a YouTube id → a direct progressive (audio+video) media URL via
+// yt-dlp, so the scene's <video> element plays synced sound. Cached ~1h
+// (googlevideo URLs are time-limited and IP-bound; we run on the same host the
+// browser fetches from). The id is whitelisted before we ever shell out.
+const ytUrlCache = new Map(); // id -> { url, exp }
+function resolveYouTube(id) {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return Promise.reject(new Error("bad id"));
+  const hit = ytUrlCache.get(id);
+  if (hit && hit.exp > Date.now()) return Promise.resolve(hit.url);
+  return new Promise((resolve, reject) => {
+    // best single file that has BOTH audio and video (progressive), mp4-first
+    execFile("yt-dlp", [
+      "-f", "best[acodec!=none][vcodec!=none][ext=mp4]/best[acodec!=none][vcodec!=none]",
+      "--no-playlist", "--no-warnings", "-g", `https://www.youtube.com/watch?v=${id}`,
+    ], { timeout: 25000 }, (err, stdout) => {
+      if (err) return reject(new Error(err.message.split("\n")[0]));
+      const url = String(stdout || "").trim().split("\n")[0];
+      if (!/^https?:\/\//.test(url)) return reject(new Error("no url resolved"));
+      ytUrlCache.set(id, { url, exp: Date.now() + 60 * 60 * 1000 });
+      resolve(url);
+    });
+  });
+}
+
 /**
  * Apply a single directive to the live page by calling the named SceneAPI
  * method with serialised params. page.evaluate marshals args as data, so there
@@ -76,7 +109,23 @@ async function applyDirective(directive) {
   if (!ALLOWED_ACTIONS.has(action)) {
     throw new Error(`disallowed action: ${action}`);
   }
-  const params = directive?.params && typeof directive.params === "object" ? directive.params : {};
+  let params = directive?.params && typeof directive.params === "object" ? directive.params : {};
+  // Overlay-mode YouTube with audio: the IFrame player won't reliably make
+  // sound in headless Chromium, but a plain <video> element does. So when audio
+  // capture is on, resolve the id → a direct progressive URL (yt-dlp) and hand
+  // the scene a kind:"video" instead. Falls back to the (muted) embed on any
+  // failure, so the picture still shows.
+  if (action === "setStageSource" && /^(youtube|yt)$/i.test(String(params.kind || "")) && config.captureSink && params.muted === false) {
+    const id = youtubeId(params);
+    if (id) {
+      try {
+        const url = await resolveYouTube(id);
+        params = { kind: "video", url, muted: false, loop: true };
+      } catch (e) {
+        console.warn("[stage] yt-dlp resolve failed, falling back to muted embed:", e.message);
+      }
+    }
+  }
   // remember the show phase so /health (and `live.sh status`) can report it.
   // These directives are the single source of truth, whatever calls them.
   if (action === "setStandby") {
@@ -178,6 +227,8 @@ function buildControlApp() {
       renderMode,
       gpuRenderer,
       dryRun: config.dryRun,
+      audioMode: config.audioMode,
+      audioCapture: config.captureSink, // true → a video source's audio is captured
       ingest: config.dryRun ? null : config.outputFile || `${config.rtmpUrl}/<key>`,
     });
   });
@@ -458,6 +509,14 @@ async function launchBrowser(url, opts) {
       ...(useGpu ? gpuArgs : ["--disable-gpu"]),
       "--no-first-run",
       "--autoplay-policy=no-user-gesture-required",
+      // Overlay-mode HLS sources (a resolved YouTube live stream, or any .m3u8)
+      // are served from googlevideo, which sends no CORS headers — hls.js can't
+      // fetch them from our origin without this. Safe on THIS browser: it's a
+      // capture-only rig whose top frame runs only our own trusted JS (scene,
+      // gsap, hls.js); the only untrusted content (viewer cards) is isolated in
+      // sandboxed iframes with their own CSP, which this flag doesn't touch.
+      // Gated to source-audio mode so it's off unless overlay sound is in use.
+      ...(config.captureSink ? ["--disable-web-security", "--user-data-dir=/tmp/hl-chrome"] : []),
       // Keep a long-lived, offscreen capture page running at FULL speed. Chrome
       // aggressively throttles backgrounded/occluded renderers: rAF (the GSAP
       // ticker) drops toward ~1fps, IntensiveWakeUpThrottling clamps timers to

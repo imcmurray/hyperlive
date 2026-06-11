@@ -7,11 +7,19 @@ export const config = {
   height: int(process.env.VIDEO_HEIGHT, 720),
   fps: int(process.env.VIDEO_FPS, 30),
   videoBitrate: process.env.VIDEO_BITRATE || "4500k",
-  audioMode: (process.env.AUDIO_MODE || "silent").toLowerCase(), // silent | tone | music
+  // silent | tone | music | source
+  //   music  → run the auto-DJ AND capture the pulse sink it plays into
+  //   source → capture the pulse sink (the BROWSER's audio — a video stage
+  //            source's sound) WITHOUT the DJ. This is what overlay mode uses.
+  audioMode: (process.env.AUDIO_MODE || "silent").toLowerCase(),
 
   // --- music (auto-DJ → PulseAudio sink → captured by ffmpeg) ---
   // AUDIO_MODE=music makes ffmpeg capture the sink AND starts the DJ daemon.
   music: (process.env.AUDIO_MODE || "silent").toLowerCase() === "music",
+  // capture the pulse sink monitor (music OR source mode). When on, start.sh
+  // brings the sink up as Chromium's DEFAULT output, so a video stage source's
+  // audio is captured automatically — and ffmpeg pulls from the sink monitor.
+  captureSink: ["music", "source"].includes((process.env.AUDIO_MODE || "silent").toLowerCase()),
   pulseSink: process.env.PULSE_SINK || "hyperlive",                    // null-sink name
   pulseMonitor: (process.env.PULSE_SINK || "hyperlive") + ".monitor", // ffmpeg pulse source
   queueMax: int(process.env.MUSIC_QUEUE_MAX, 20),                     // max requests waiting

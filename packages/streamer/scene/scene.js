@@ -760,6 +760,41 @@
     return f;
   }
 
+  // ---- stage source (overlay mode) state ----------------------------------
+  // The YouTube IFrame Player API is the only reliable way to autoplay WITH
+  // sound (a bare embed auto-mutes). It's lazy-loaded the first time a YouTube
+  // stage is set, so the default scene never pulls anything from youtube.com.
+  let ytPlayer = null, ytApiPromise = null, stageGen = 0, hlsInst = null, hlsLibPromise = null;
+  // hls.js is vendored but lazy-loaded — only a live/HLS stage source pulls it,
+  // so the default scene stays lean. Chromium can't play .m3u8 in a <video>
+  // natively; hls.js feeds it via MSE (audio + video).
+  function ensureHls() {
+    if (window.Hls) return Promise.resolve();
+    if (hlsLibPromise) return hlsLibPromise;
+    hlsLibPromise = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "/vendor/hls.min.js";
+      s.onload = () => resolve();
+      s.onerror = () => { hlsLibPromise = null; reject(new Error("hls.js load failed")); };
+      document.head.appendChild(s);
+    });
+    return hlsLibPromise;
+  }
+  const isHls = (u) => /\.m3u8(\?|$)|\/manifest\/|\/hls[_/]/i.test(String(u));
+  function ensureYTApi() {
+    if (window.YT && window.YT.Player) return Promise.resolve();
+    if (ytApiPromise) return ytApiPromise;
+    ytApiPromise = new Promise((resolve, reject) => {
+      const prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => { try { prev && prev(); } catch {} resolve(); };
+      const s = document.createElement("script");
+      s.src = "https://www.youtube.com/iframe_api";
+      s.onerror = () => { ytApiPromise = null; reject(new Error("yt api load failed")); };
+      document.head.appendChild(s);
+    });
+    return ytApiPromise;
+  }
+
   // ---- the action table ---------------------------------------------------
   const SceneAPI = {
     // Tier 1: the element manifest the director plans against
@@ -1442,7 +1477,10 @@
       if (!host) return { ok: false, error: "no stage-source layer" };
       const kind = String(p.kind || "none").toLowerCase();
       const scrim = host.querySelector(".src-scrim");
-      // tear down any previous source (stops a playing iframe/video cleanly)
+      const gen = ++stageGen; // invalidates any in-flight async source from a prior call
+      // tear down any previous source (stops a playing iframe/video/HLS cleanly)
+      if (ytPlayer) { try { ytPlayer.destroy(); } catch {} ytPlayer = null; }
+      if (hlsInst) { try { hlsInst.destroy(); } catch {} hlsInst = null; }
       for (const el of [...host.children]) { if (el !== scrim) el.remove(); }
 
       if (kind === "none" || kind === "off" || kind === "clear") {
@@ -1460,34 +1498,67 @@
           id = m ? m[1] : "";
         }
         if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return { ok: false, error: "youtube id/url required" };
-        const mute = p.muted === false ? 0 : 1; // muted by default (browser audio isn't captured yet)
-        const f = document.createElement("iframe");
-        f.setAttribute("allow", "autoplay; encrypted-media");
-        f.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
-        f.setAttribute("frameborder", "0");
-        // params are fixed/clamped — id is the only variable and it's whitelisted
-        const qs = new URLSearchParams({
-          autoplay: "1", mute: String(mute), controls: "0", modestbranding: "1",
-          rel: "0", iv_load_policy: "3", disablekb: "1", fs: "0", playsinline: "1",
-          loop: "1", playlist: id, // single-video loop requires playlist=id
-        });
-        f.src = `https://www.youtube-nocookie.com/embed/${id}?${qs.toString()}`;
-        host.appendChild(f);
+        const wantSound = p.muted === false;
+        // the API replaces this mount node with the player iframe (on nocookie)
+        const mount = document.createElement("div");
+        host.appendChild(mount);
         document.body.classList.add("stage-sourced");
-        return { ok: true, kind: "youtube", id, muted: !!mute };
+        const unmute = (player) => { try { player.unMute(); player.setVolume(100); } catch {} };
+        ensureYTApi().then(() => {
+          if (gen !== stageGen) return; // a newer setStageSource superseded us
+          ytPlayer = new window.YT.Player(mount, {
+            width: "100%", height: "100%", videoId: id,
+            host: "https://www.youtube-nocookie.com",
+            playerVars: {
+              autoplay: 1, mute: wantSound ? 0 : 1, controls: 0, modestbranding: 1,
+              rel: 0, iv_load_policy: 3, disablekb: 1, fs: 0, playsinline: 1,
+              loop: 1, playlist: id,
+            },
+            events: {
+              onReady: (e) => { if (wantSound) unmute(e.target); try { e.target.playVideo(); } catch {} },
+              // re-assert unmute when it actually starts PLAYING (state 1) — some
+              // players honor unMute only once playback has begun
+              onStateChange: (e) => { if (wantSound && e.data === 1 && e.target.isMuted && e.target.isMuted()) unmute(e.target); },
+            },
+          });
+        }).catch(() => {
+          if (gen !== stageGen) return;
+          // no network for the API → fall back to a plain muted embed (silent)
+          const f = document.createElement("iframe");
+          f.setAttribute("allow", "autoplay; encrypted-media");
+          f.setAttribute("frameborder", "0");
+          const qs = new URLSearchParams({ autoplay: "1", mute: "1", controls: "0", rel: "0", loop: "1", playlist: id, playsinline: "1" });
+          f.src = `https://www.youtube-nocookie.com/embed/${id}?${qs.toString()}`;
+          host.appendChild(f);
+        });
+        return { ok: true, kind: "youtube", id, muted: !wantSound };
       }
 
       if (kind === "video") {
         const url = httpUrl(p.url);
         if (!url) return { ok: false, error: "http(s) video url required" };
         const v = document.createElement("video");
-        v.src = url;
         v.autoplay = true; v.loop = p.loop !== false; v.playsInline = true;
         v.muted = p.muted !== false; // muted by default → reliable autoplay
-        v.play?.().catch(() => {});
+        const tryPlay = () => { v.play?.().catch(() => {}); };
+        v.addEventListener("canplay", tryPlay, { once: true });
         host.appendChild(v);
         document.body.classList.add("stage-sourced");
-        return { ok: true, kind: "video", url, muted: v.muted };
+        if (isHls(url)) {
+          // a live stream / HLS manifest — Chromium needs hls.js (via MSE)
+          ensureHls().then(() => {
+            if (gen !== stageGen) return;
+            if (window.Hls && window.Hls.isSupported()) {
+              hlsInst = new window.Hls({ lowLatencyMode: true });
+              hlsInst.loadSource(url);
+              hlsInst.attachMedia(v);
+              hlsInst.on(window.Hls.Events.MANIFEST_PARSED, tryPlay);
+            } else { v.src = url; tryPlay(); } // (Safari-style native HLS fallback)
+          }).catch(() => { if (gen === stageGen) { v.src = url; tryPlay(); } });
+        } else {
+          v.src = url; tryPlay();
+        }
+        return { ok: true, kind: "video", url, muted: v.muted, hls: isHls(url) };
       }
 
       if (kind === "image") {

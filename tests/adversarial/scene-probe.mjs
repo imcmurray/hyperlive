@@ -173,11 +173,13 @@ if (allRejected && stageState.children === 0 && !stageState.sourced) ok("stageSo
 else fail("stageSource.rejects-injection", `rejected=${allRejected} children=${stageState.children} sourced=${stageState.sourced}`);
 
 // a clean youtube id IS accepted (positive control — the whitelist isn't just
-// blanket-refusing) but loads youtube-nocookie embed, sandboxed by the browser
+// blanket-refusing). The player iframe is created asynchronously by the YT
+// IFrame API (network-dependent), so the deterministic, security-relevant
+// assertion is the validated return + that the stage entered sourced mode.
 const goodYt = await call("setStageSource", { kind: "youtube", id: "dQw4w9WgXcQ" });
-const ytSrc = await page.evaluate(() => { const f = document.querySelector("#stage-source iframe"); return f ? f.src : ""; });
-if (goodYt && goodYt.ok && /youtube-nocookie\.com\/embed\/dQw4w9WgXcQ\?/.test(ytSrc)) ok("stageSource.accepts-clean-id");
-else fail("stageSource.accepts-clean-id", `ok=${JSON.stringify(goodYt)} src=${ytSrc}`);
+const sourcedNow = await page.evaluate(() => document.body.classList.contains("stage-sourced"));
+if (goodYt && goodYt.ok && goodYt.kind === "youtube" && goodYt.id === "dQw4w9WgXcQ" && sourcedNow) ok("stageSource.accepts-clean-id");
+else fail("stageSource.accepts-clean-id", `ok=${JSON.stringify(goodYt)} sourced=${sourcedNow}`);
 await call("setStageSource", { kind: "none" }); // reset
 
 // ---- the verdict -------------------------------------------------------------

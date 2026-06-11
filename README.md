@@ -59,8 +59,11 @@ scripts/mutate.sh '{"action":"setStageSource","params":{"kind":"youtube","id":"5
 
 <sub>A YouTube video as the stage, with the live HyperLive scene (kicker,
 gradient headline, rotating card, legibility scrim) composited on top — all in
-one capture. It's operator-only (never viewer-reachable), and the source is
-chosen from the dashboard's **STAGE SOURCE** control. Design notes:
+one capture, **with the source's audio** (`AUDIO_MODE=source` captures the
+browser's sound; YouTube is resolved via `yt-dlp` and played in a `<video>`, so
+both live streams and VODs play with synced audio). It's operator-only (never
+viewer-reachable), and the source is chosen from the dashboard's **STAGE
+SOURCE** control. Design notes:
 [`docs/platform-directions.md` §6](docs/platform-directions.md).</sub>
 
 ## Why this architecture (the key bet)

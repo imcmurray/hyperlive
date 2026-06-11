@@ -33,6 +33,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       vainfo \
   && rm -rf /var/lib/apt/lists/*
 
+# yt-dlp: resolves a YouTube id → a direct progressive (audio+video) media URL
+# the scene plays in a plain <video> element. The YouTube IFrame player won't
+# reliably produce audio in headless Chromium, but a direct media element does —
+# so for an overlay-mode YouTube stage we resolve the URL here and let the
+# browser play it (synced audio + video). The _linux build is a static
+# (pyinstaller) binary — no python runtime dependency.
+ADD https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux /usr/local/bin/yt-dlp
+RUN chmod a+rx /usr/local/bin/yt-dlp
+
 # Don't let puppeteer-core try to download a browser; use the distro Chromium.
 # MESA_LOADER_DRIVER_OVERRIDE=iris → GL/Vulkan; LIBVA_DRIVER_NAME=iHD → VAAPI encode.
 ENV PUPPETEER_SKIP_DOWNLOAD=1 \

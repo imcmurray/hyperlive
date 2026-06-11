@@ -259,12 +259,19 @@ game or camera feed, which the interaction stack can't address at all.
 "just-chatting" each become packs in the §2 sense — a source choice + the
 overlay widgets that suit it, reusing the whole interaction stack unchanged.
 
-**Still open:** *audio.* The in-browser path captures the source's **picture**
-but not its **sound** — browser audio isn't routed into the ffmpeg capture yet
-(the YouTube embed autoplays muted). Capturing it means teeing the page's
-PulseAudio output into the encoder, which the music-mode sink plumbing already
-does for the DJ and can be adapted for. Until then, overlay mode is silent (or
-runs under the existing music bed).
+**Audio (done).** `AUDIO_MODE=source` brings the PulseAudio null-sink up as
+Chromium's **default output** and points ffmpeg at its monitor — so a video
+stage source's sound is captured the same proven way the DJ's music is. The one
+wrinkle is YouTube: its IFrame player won't reliably produce audio in headless
+Chromium (it stays muted even when the API reports unmuted), so for a YouTube
+stage the streamer resolves the id → a direct progressive/HLS URL with `yt-dlp`
+and the scene plays *that* in a plain `<video>` (synced audio + video, via
+hls.js for live/HLS). Verified: a live YouTube stream captures at ~−12 dB, a VOD
+at ~−13 dB — clear, full-scale audio. (HLS from googlevideo sends no CORS
+headers, so the capture browser runs `--disable-web-security` in source mode —
+safe on this rig: the top frame runs only our own trusted JS, and the only
+untrusted content, viewer cards, stays in sandboxed iframes that flag doesn't
+touch.)
 
 This is the cleanest answer to *"how does someone stream **their** content on
 HyperLive?"* — they bring the stage; HyperLive brings the moderated crowd layer
