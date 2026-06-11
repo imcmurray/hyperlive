@@ -122,6 +122,17 @@ export async function addStage(def = {}) {
   return { ok: true, stage };
 }
 
+export async function updateStage(id, def = {}) {
+  ensure();
+  const i = state.custom.findIndex((c) => c.id === id);
+  if (i < 0) return { ok: false, error: "unknown stage (builtins can't be edited)" };
+  const n = normalize(def);
+  if (n.error) return { ok: false, error: n.error };
+  state.custom[i] = { ...n.stage, id };
+  await persist();
+  return { ok: true, stage: state.custom[i] };
+}
+
 export async function removeStage(id) {
   ensure();
   const i = state.custom.findIndex((c) => c.id === id);

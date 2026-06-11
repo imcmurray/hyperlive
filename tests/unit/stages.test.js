@@ -101,3 +101,19 @@ test("custom stages are capped at 24", async () => {
 test("builtins can't be removed", async () => {
   assert.equal((await removeStage("scene")).ok, false);
 });
+
+test("updateStage edits a custom stage in place, keeping its id; rejects unknown/builtin", async () => {
+  const { updateStage } = await import("../../packages/ingest/src/stages.js");
+  const add = await addStage({ kind: "youtube", source: "dQw4w9WgXcQ", label: "before" });
+  const id = add.stage.id;
+  const up = await updateStage(id, { kind: "youtube", source: "https://youtu.be/aaaaaaaaaaa", label: "after", titles: "hide" });
+  assert.equal(up.ok, true);
+  assert.equal(up.stage.id, id);          // same identity
+  assert.equal(up.stage.videoId, "aaaaaaaaaaa");
+  assert.equal(up.stage.label, "after");
+  assert.equal(up.stage.titleAnim, "hide");
+  assert.equal(getStage(id).label, "after");
+  assert.equal((await updateStage("nope", { kind: "scene" })).ok, false);
+  assert.equal((await updateStage("scene", { kind: "scene" })).ok, false); // builtin
+  await removeStage(id);
+});

@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { ban, unban, mute, unmute, listBans, listMutes, isBanned, isMuted } from "./bans.js";
 import { listAutomations, setAutomation, addCustom, updateCustom, buildPreviewDirectives } from "./automations.js";
-import { listStages, getStage, addStage, removeStage, setActive, buildApplyDirectives, setTitleDefault } from "./stages.js";
+import { listStages, getStage, addStage, updateStage, removeStage, setActive, buildApplyDirectives, setTitleDefault } from "./stages.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DASH_HTML = path.resolve(__dirname, "../../dashboard/index.html");
@@ -362,13 +362,15 @@ export function startAdmin({ log = console.log } = {}) {
         if (out.ok) publishFeed({ stage: "stage_source", comment: { author: "operator", text: `title default → ${out.titleDefault}` } });
         return json(res, out.ok ? 200 : 400, out);
       }
-      // add / remove a custom stage
+      // add / edit / remove a custom stage
       if (route === "POST /admin/stages/custom") {
         const b = await readJson(req);
-        let out;
-        if (b.remove) out = await removeStage(String(b.id || ""));
-        else out = await addStage({ label: b.label, kind: b.kind, source: b.source, url: b.url, id: b.id, muted: b.muted, theme: b.theme, titles: b.titles });
-        if (out.ok) publishFeed({ stage: "stage_source", comment: { author: "operator", text: b.remove ? `stage removed: ${b.id}` : `stage added: ${out.stage?.label}` } });
+        const def = { label: b.label, kind: b.kind, source: b.source, url: b.url, muted: b.muted, theme: b.theme, titles: b.titles };
+        let out, verb;
+        if (b.remove) { out = await removeStage(String(b.id || "")); verb = "removed"; }
+        else if (b.id) { out = await updateStage(String(b.id), def); verb = "edited"; }
+        else { out = await addStage(def); verb = "added"; }
+        if (out.ok) publishFeed({ stage: "stage_source", comment: { author: "operator", text: `stage ${verb}: ${out.stage?.label || b.id}` } });
         return json(res, out.ok ? 200 : 400, out);
       }
       // apply a stage LIVE (or preview it off-air with {preview:true})

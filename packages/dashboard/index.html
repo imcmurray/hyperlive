@@ -243,10 +243,18 @@
   .title-ctl .lab { color: #cfe8cf; font-size: 12px; }
   .title-ctl .sub { color: var(--dim); font-size: 10px; margin-top: 3px; }
   .srow {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 11px;
     padding: 11px 12px; border-bottom: 1px solid #131913; border-left: 2px solid transparent;
   }
   .srow.is-active { background: #0e1f15; border-left-color: var(--green); }
+  .sthumb {
+    flex: 0 0 auto; width: 92px; height: 52px; border-radius: 3px; overflow: hidden;
+    border: 1px solid #1f2a1f; background: #0a0d0a; position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sthumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .sthumb .glyph { font-size: 18px; color: #5a7a5a; }
+  .sthumb .tag { position: absolute; bottom: 2px; right: 3px; font: 8px var(--mono); color: #cfe8cf; background: rgba(0,0,0,.55); padding: 0 3px; border-radius: 2px; text-transform: uppercase; letter-spacing: .04em; }
   .srow .meta { flex: 1; min-width: 0; }
   .srow .nm { color: #cfe8cf; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .srow .nm.live { color: var(--green); }
@@ -940,16 +948,50 @@
   });
 
   // ---- STAGES view: presets for the main video + live switching ----
+  let lastStages = [], editStageId = null;
+  // theme accent colors (mirror packages/streamer/scene/styles.css) → scene
+  // swatches that match what the broadcast actually shows
+  const THEME_COLS = {
+    synthwave:["#ff2e97","#7a2bff","#16d6ff"], sunrise:["#ff8a00","#ff2e63","#ffd166"], mono:["#f0f0f0","#8a8a8a","#fff"],
+    forest:["#19f59c","#0bb37a","#d2ff5e"], aurora:["#3df5c4","#7a5cff","#b6ff5e"], ember:["#ff7b29","#ff3d3d","#ffcf5e"],
+    midnight:["#4f8cff","#7a5cff","#5ef0ff"], vapor:["#ff71ce","#b967ff","#01cdfe"], matrix:["#39ff14","#0aff9d","#c8ff00"],
+    gold:["#ffd35e","#7a4bff","#fff1b8"], crimson:["#ff3b5c","#ff6b3d","#ffb3c1"], neon:["#ff10f0","#10f0ff","#fffb00"],
+    dusk:["#ff7e5f","#9d50bb","#ffd194"], ocean:["#00d4ff","#0077be","#7afcff"], lava:["#ff4500","#ff8c00","#ffd700"],
+    frost:["#a8e6ff","#5eb0ef","#fff"], glitch:["#ff00a0","#00ffe0","#aaff00"], retro:["#ffb000","#ff5e3a","#39ff14"],
+    void:["#7a5cff","#3a2a6a","#b6a8ff"], plasma:["#ff2ed1","#2ee6ff","#b22eff"], noir:["#e8e8e8","#6a6a6a","#ff2e2e"],
+    solar:["#ff7e3d","#ff5e3a","#fff3c4"], holo:["#00fff0","#ff00e5","#a0fff0"],
+  };
+  const sceneSwatch = (theme) => {
+    const c = THEME_COLS[theme] || THEME_COLS.synthwave;
+    return `background: radial-gradient(120% 120% at 30% 18%, ${c[0]}55 0%, ${c[1]}44 45%, #05030f 100%), #07060f`;
+  };
+  const ytThumb = (id) => `https://i.ytimg.com/vi/${encodeURIComponent(id)}/mqdefault.jpg`;
+  // a small visual preview per stage: the real source where one exists, a
+  // theme-accurate swatch for scenes, a glyph for direct video
+  // a glyph sits BEHIND the img; if the image fails to load the img hides and
+  // the glyph shows through (so a thumbnail never renders as a broken-image box)
+  const stageThumb = (s) => {
+    if (s.kind === "youtube" && s.videoId) {
+      const fb = `https://i.ytimg.com/vi/${encodeURIComponent(s.videoId)}/hqdefault.jpg`;
+      return `<div class="sthumb"><span class="glyph">►</span><img src="${ytThumb(s.videoId)}" alt="" onerror="if(!this.dataset.f){this.dataset.f=1;this.src='${fb}'}else{this.style.display='none'}"><span class="tag">yt</span></div>`;
+    }
+    if (s.kind === "image" && s.url)
+      return `<div class="sthumb"><span class="glyph">▦</span><img src="${esc(s.url)}" alt="" onerror="this.style.display='none'"><span class="tag">img</span></div>`;
+    if (s.kind === "scene")
+      return `<div class="sthumb" style="${sceneSwatch(s.theme)}"><span class="glyph">✦</span><span class="tag">${esc(s.theme || "scene")}</span></div>`;
+    return `<div class="sthumb"><span class="glyph">►</span><span class="tag">vid</span></div>`; // direct video / HLS
+  };
   const stageSummary = (s) =>
     s.kind === "scene" ? (s.theme ? `native scene · ${s.theme}` : "native generative scene")
     : s.kind === "youtube" ? `YouTube ${esc(s.videoId)}${s.muted ? " · muted" : " · 🔊"}`
-    : s.kind === "video" ? `video${s.muted ? " · muted" : " · 🔊"} · ${esc((s.url || "").replace(/^https?:\/\//, "").slice(0, 36))}`
-    : s.kind === "image" ? `image · ${esc((s.url || "").replace(/^https?:\/\//, "").slice(0, 36))}`
+    : s.kind === "video" ? `video${s.muted ? " · muted" : " · 🔊"} · ${esc((s.url || "").replace(/^https?:\/\//, "").slice(0, 34))}`
+    : s.kind === "image" ? `image · ${esc((s.url || "").replace(/^https?:\/\//, "").slice(0, 34))}`
     : esc(s.kind);
   const stageRow = (s, active) => {
     const live = s.id === active;
     return `
     <div class="srow ${live ? "is-active" : ""}" data-id="${esc(s.id)}">
+      ${stageThumb(s)}
       <div class="meta">
         <div class="nm ${live ? "live" : ""}">${live ? "▶ " : ""}${esc(s.label)}
           <span class="kbadge">${esc(s.kind)}</span>
@@ -959,7 +1001,7 @@
       </div>
       <button class="btn go" data-apply="${esc(s.id)}" title="switch the LIVE stage to this now"${live ? " disabled" : ""}>${live ? "ON AIR" : "GO LIVE"}</button>
       <button class="btn" data-spreview="${esc(s.id)}" title="preview off-air in the twin (no broadcast risk)">▶ preview</button>
-      ${s.builtin ? "" : `<button class="btn danger" data-sdel="${esc(s.id)}" title="delete this stage">✕</button>`}
+      ${s.builtin ? "" : `<button class="btn" data-sedit="${esc(s.id)}" title="edit this stage">edit</button><button class="btn danger" data-sdel="${esc(s.id)}" title="delete this stage">del</button>`}
     </div>`;
   };
   const TITLE_LABELS = { slideL: "fly in ← left", slideR: "fly in → right", slideU: "fly up", slideD: "fly down", fade: "fade in", none: "no anim", hide: "hidden (clean stage)" };
@@ -969,7 +1011,9 @@
   async function loadStagesView() {
     const r = await api("/admin/stages").catch(() => null);
     if (!r?.ok || view !== "stages") return;
-    const rows = [...r.builtins, ...r.custom].map((s) => stageRow(s, r.active)).join("");
+    lastStages = [...r.builtins, ...r.custom];
+    editStageId = null; // a fresh render clears any in-progress edit
+    const rows = lastStages.map((s) => stageRow(s, r.active)).join("");
     $("#stages-list").innerHTML = `
       <h2>STAGES — WHAT'S ON THE MAIN VIDEO</h2>
       <div class="stages-note"><b>GO LIVE</b> switches the broadcast stage instantly (works mid-show); <b>▶ preview</b> shows it off-air first. YouTube/video stages need <b>AUDIO_MODE=source</b> for sound.</div>
@@ -978,7 +1022,7 @@
         <select id="title-default">${titleOpts(r.titleAnims, r.titleDefault, false)}</select>
       </div>
       ${rows}
-      <h2>ADD A STAGE</h2>
+      <h2 id="sa-heading">ADD A STAGE</h2>
       <div class="stage-add">
         <div class="line">
           <input id="sa-label" class="grow" placeholder="stage name…">
@@ -991,10 +1035,25 @@
           <input id="sa-theme" placeholder="theme (optional)" style="width:130px">
           <label>titles <select id="sa-titles">${titleOpts(r.titleAnims, "", true)}</select></label>
           <label><input type="checkbox" id="sa-muted" style="width:auto"> mute audio</label>
-          <button class="btn go" id="sa-add" style="margin-left:auto">+ ADD STAGE</button>
+          <button class="btn" id="sa-cancel" style="margin-left:auto;display:none">cancel</button>
+          <button class="btn go" id="sa-add">+ ADD STAGE</button>
         </div>
       </div>`;
     syncAddForm();
+  }
+  // load a stage's values into the add form and switch it to edit/save mode
+  function beginEditStage(s) {
+    editStageId = s.id;
+    $("#sa-label").value = s.label || "";
+    $("#sa-kind").value = s.kind; syncAddForm();
+    $("#sa-source").value = s.kind === "youtube" ? (s.videoId || "") : (s.url || "");
+    $("#sa-theme").value = s.theme || "";
+    $("#sa-titles").value = s.titleAnim || "default";
+    $("#sa-muted").checked = !!s.muted;
+    $("#sa-heading").textContent = `EDIT STAGE — ${s.label}`;
+    $("#sa-add").textContent = "✓ SAVE";
+    $("#sa-cancel").style.display = "";
+    $("#sa-label").scrollIntoView({ behavior: "smooth", block: "center" });
   }
   // hide the source field when kind=scene (scenes have no external source)
   function syncAddForm() {
@@ -1020,17 +1079,25 @@
       if (!r.ok) closeLive();
       return;
     }
+    const ed = ev.target.closest("[data-sedit]");
+    if (ed) {
+      const s = lastStages.find((x) => x.id === ed.dataset.sedit);
+      if (s) beginEditStage(s);
+      return;
+    }
     const del = ev.target.closest("[data-sdel]");
     if (del) {
       if (!confirm("Delete this stage?")) return;
       await api("/admin/stages/custom", { id: del.dataset.sdel, remove: true });
       toast("deleted"); return loadStagesView();
     }
+    if (ev.target.closest("#sa-cancel")) { return loadStagesView(); } // discard edit
     if (ev.target.closest("#sa-add")) {
       const kind = $("#sa-kind").value;
       const body = { label: $("#sa-label").value.trim(), kind, source: $("#sa-source").value.trim(), theme: $("#sa-theme").value.trim(), titles: $("#sa-titles").value, muted: $("#sa-muted").checked };
+      if (editStageId) body.id = editStageId; // edit instead of add
       const r = await api("/admin/stages/custom", body);
-      toast(r.ok ? `added: ${r.stage.label}` : `failed: ${r.error || "?"}`);
+      toast(r.ok ? (editStageId ? "stage saved" : `added: ${r.stage.label}`) : `failed: ${r.error || "?"}`);
       if (r.ok) loadStagesView();
     }
   });
