@@ -16,6 +16,9 @@ import { saveJson } from "./state.js";
 const FILE = process.env.STAGES_FILE || "./state/stages.json";
 
 export const STAGE_KINDS = ["scene", "youtube", "video", "image"];
+// how the overlay title block (#content) enters when a stage goes live. "hide"
+// flies it out for a clean stage; "default"/"" defers to the global setting.
+export const TITLE_ANIMS = ["slideL", "slideR", "slideU", "slideD", "fade", "none", "hide"];
 const MAX_CUSTOM = 24;
 
 // always-present builtins. "scene" clears any source → the native generative
@@ -26,10 +29,10 @@ const BUILTINS = [
   { id: "scene-synthwave", label: "Scene · Synthwave", kind: "scene", theme: "synthwave", desc: "native scene, synthwave theme" },
 ];
 
-let state = null; // { custom: [stage], active: id }
+let state = null; // { custom: [stage], active: id, titleDefault }
 let seq = 0;
 
-const ensure = () => state || (state = { custom: [], active: "scene" });
+const ensure = () => state || (state = { custom: [], active: "scene", titleDefault: "slideL" });
 const ytId = (s) => {
   const raw = String(s || "");
   if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
@@ -39,11 +42,14 @@ const ytId = (s) => {
 const httpUrl = (u) => { try { const x = new URL(String(u)); return (x.protocol === "https:" || x.protocol === "http:") ? x.href : null; } catch { return null; } };
 
 // validate + normalize an incoming stage definition (operator input)
-function normalize({ label, kind, source, url, id, muted, theme } = {}) {
+function normalize({ label, kind, source, url, id, muted, theme, titles } = {}) {
   kind = String(kind || "").toLowerCase();
   if (!STAGE_KINDS.includes(kind)) return { error: `kind must be ${STAGE_KINDS.join("|")}` };
   const out = { kind, label: String(label || "").slice(0, 60) };
   if (theme) out.theme = String(theme).toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 24);
+  // titles: "" / "default" → defer to the global default; else one of TITLE_ANIMS
+  const t = String(titles || "").toLowerCase();
+  if (t && t !== "default") out.titleAnim = TITLE_ANIMS.includes(t) ? t : "";
   if (kind === "youtube") {
     // NB: videoId (the 11-char YouTube id), NOT id — id is the stage's own
     // unique key, assigned by addStage; conflating them clobbers one.
@@ -72,8 +78,18 @@ export async function loadStages() {
       seq = state.custom.reduce((m, c) => Math.max(m, Number(String(c.id).replace(/\D/g, "")) || 0), 0);
     }
     if (typeof j?.active === "string") state.active = j.active;
+    if (TITLE_ANIMS.includes(j?.titleDefault)) state.titleDefault = j.titleDefault;
   } catch { /* defaults */ }
   return state;
+}
+
+export function getTitleDefault() { return ensure().titleDefault; }
+export async function setTitleDefault(anim) {
+  ensure();
+  if (!TITLE_ANIMS.includes(anim)) return { ok: false, error: `titles must be ${TITLE_ANIMS.join("|")}` };
+  state.titleDefault = anim;
+  await persist();
+  return { ok: true, titleDefault: anim };
 }
 
 async function persist() { try { await saveJson(FILE, state); } catch { /* non-fatal */ } }
@@ -85,6 +101,8 @@ export function listStages() {
     custom: state.custom.map((c) => ({ ...c, builtin: false })),
     active: state.active,
     kinds: STAGE_KINDS,
+    titleAnims: TITLE_ANIMS,
+    titleDefault: state.titleDefault,
   };
 }
 
@@ -116,14 +134,21 @@ export async function removeStage(id) {
 
 export async function setActive(id) { ensure(); state.active = id; await persist(); }
 
-// the directives that apply a stage live: clear/set the source, then (if the
-// stage names a theme) crossfade to it. Both are vetted, clamped scene actions.
+// the directives that apply a stage live: set the source, (optionally) crossfade
+// the theme, and fly the overlay titles in/out. All vetted, clamped scene
+// actions. The title treatment is the stage's own setting, or the global
+// default when it doesn't specify one ("hide" flies them out for a clean stage).
 export function buildApplyDirectives(stage) {
+  ensure();
   const d = [];
   if (stage.kind === "scene") d.push({ action: "setStageSource", params: { kind: "none" } });
   else if (stage.kind === "youtube") d.push({ action: "setStageSource", params: { kind: "youtube", id: stage.videoId, muted: !!stage.muted } });
   else if (stage.kind === "video") d.push({ action: "setStageSource", params: { kind: "video", url: stage.url, muted: !!stage.muted } });
   else if (stage.kind === "image") d.push({ action: "setStageSource", params: { kind: "image", url: stage.url } });
   if (stage.theme) d.push({ action: "transitionTheme", params: { theme: stage.theme, duration: 1.2 } });
+  const anim = stage.titleAnim || state.titleDefault || "slideL";
+  d.push(anim === "hide"
+    ? { action: "setTitles", params: { show: false, anim: "fade" } }
+    : { action: "setTitles", params: { show: true, anim } });
   return d;
 }

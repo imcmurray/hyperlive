@@ -46,6 +46,7 @@ const ALLOWED_ACTIONS = new Set([
   "setStageSource", // overlay mode: external video/image UNDER the scene. OPERATOR
                     // only — reachable via the loopback /mutate (dashboard), NOT
                     // emitted by the director, so viewers can't set the source.
+  "setTitles",      // fly the overlay title block in/out (per-stage or global)
 ]);
 // NB: showCard/takeover/clearCards are deliberately NOT in this allowlist —
 // model-authored markup may only enter through POST /card and /takeover below,

@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { ban, unban, mute, unmute, listBans, listMutes, isBanned, isMuted } from "./bans.js";
 import { listAutomations, setAutomation, addCustom, updateCustom, buildPreviewDirectives } from "./automations.js";
-import { listStages, getStage, addStage, removeStage, setActive, buildApplyDirectives } from "./stages.js";
+import { listStages, getStage, addStage, removeStage, setActive, buildApplyDirectives, setTitleDefault } from "./stages.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DASH_HTML = path.resolve(__dirname, "../../dashboard/index.html");
@@ -355,12 +355,19 @@ export function startAdmin({ log = console.log } = {}) {
       if (route === "GET /admin/stages") {
         return json(res, 200, { ok: true, ...listStages() });
       }
+      // global title-animation default (per-stage settings override it)
+      if (route === "POST /admin/stages/titles") {
+        const b = await readJson(req);
+        const out = await setTitleDefault(String(b.default || ""));
+        if (out.ok) publishFeed({ stage: "stage_source", comment: { author: "operator", text: `title default → ${out.titleDefault}` } });
+        return json(res, out.ok ? 200 : 400, out);
+      }
       // add / remove a custom stage
       if (route === "POST /admin/stages/custom") {
         const b = await readJson(req);
         let out;
         if (b.remove) out = await removeStage(String(b.id || ""));
-        else out = await addStage({ label: b.label, kind: b.kind, source: b.source, url: b.url, id: b.id, muted: b.muted, theme: b.theme });
+        else out = await addStage({ label: b.label, kind: b.kind, source: b.source, url: b.url, id: b.id, muted: b.muted, theme: b.theme, titles: b.titles });
         if (out.ok) publishFeed({ stage: "stage_source", comment: { author: "operator", text: b.remove ? `stage removed: ${b.id}` : `stage added: ${out.stage?.label}` } });
         return json(res, out.ok ? 200 : 400, out);
       }

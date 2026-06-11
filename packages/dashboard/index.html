@@ -923,13 +923,17 @@
   const stageRow = (s, active) => `
     <div class="arow stage-row ${s.id === active ? "is-active" : ""}" data-id="${esc(s.id)}">
       <div>
-        <div class="alabel">${s.id === active ? "▶ " : ""}${esc(s.label)} <span class="kbadge">${esc(s.kind)}</span></div>
+        <div class="alabel">${s.id === active ? "▶ " : ""}${esc(s.label)} <span class="kbadge">${esc(s.kind)}</span>${s.titleAnim ? `<span class="kbadge">titles: ${esc(TITLE_LABELS[s.titleAnim] || s.titleAnim)}</span>` : ""}</div>
         <div class="adesc">${stageSummary(s)}</div>
       </div>
       <button class="btn" data-apply="${esc(s.id)}" title="switch the LIVE stage to this now">GO LIVE</button>
       <button class="btn" data-spreview="${esc(s.id)}" title="preview off-air in the twin (no broadcast risk)">▶</button>
       ${s.builtin ? "" : `<button class="btn danger" data-sdel="${esc(s.id)}" title="delete this stage">✕</button>`}
     </div>`;
+  const TITLE_LABELS = { slideL: "fly in ← left", slideR: "fly in → right", slideU: "fly up", slideD: "fly down", fade: "fade in", none: "no anim", hide: "hidden (clean stage)" };
+  const titleOpts = (anims, sel, withDefault) =>
+    (withDefault ? `<option value="default"${!sel ? " selected" : ""}>default (global)</option>` : "") +
+    anims.map((a) => `<option value="${esc(a)}"${a === sel ? " selected" : ""}>${esc(TITLE_LABELS[a] || a)}</option>`).join("");
   async function loadStagesView() {
     const r = await api("/admin/stages").catch(() => null);
     if (!r?.ok || view !== "stages") return;
@@ -937,6 +941,10 @@
     $("#stages-list").innerHTML = `
       <h2>STAGES — WHAT'S ON THE MAIN VIDEO</h2>
       <div class="adesc" style="padding:0 0 6px">GO LIVE switches the broadcast stage instantly (works mid-show); ▶ previews off-air first. YouTube/video stages need <b>AUDIO_MODE=source</b> for sound.</div>
+      <div class="arow" style="background:#0b140b;display:flex;gap:10px;align-items:center;justify-content:space-between">
+        <div style="flex:1"><div class="alabel">Overlay titles — global default</div><div class="adesc">how the kicker / headline / subhead fly in; a stage can override this</div></div>
+        <select id="title-default" style="flex:0 0 auto">${titleOpts(r.titleAnims, r.titleDefault, false)}</select>
+      </div>
       ${rows}
       <h2>ADD A STAGE</h2>
       <div class="arow" id="stage-add" style="grid-template-columns:1fr">
@@ -945,6 +953,7 @@
           <select id="sa-kind"><option value="youtube">youtube</option><option value="video">video/HLS</option><option value="image">image</option><option value="scene">scene</option></select>
           <input id="sa-source" placeholder="YouTube URL/id, or media URL" style="flex:2;min-width:160px;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px">
           <input id="sa-theme" placeholder="theme (optional)" style="width:120px;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px">
+          <label style="font-size:10px;opacity:.75;display:flex;align-items:center;gap:3px">titles <select id="sa-titles">${titleOpts(r.titleAnims, "", true)}</select></label>
           <label style="display:flex;align-items:center;gap:4px;font-size:10px;opacity:.75"><input type="checkbox" id="sa-muted" style="width:auto"> mute</label>
           <button class="btn" id="sa-add">+ ADD</button>
         </div>
@@ -974,10 +983,16 @@
     }
     if (ev.target.closest("#sa-add")) {
       const kind = $("#sa-kind").value;
-      const body = { label: $("#sa-label").value.trim(), kind, source: $("#sa-source").value.trim(), theme: $("#sa-theme").value.trim(), muted: $("#sa-muted").checked };
+      const body = { label: $("#sa-label").value.trim(), kind, source: $("#sa-source").value.trim(), theme: $("#sa-theme").value.trim(), titles: $("#sa-titles").value, muted: $("#sa-muted").checked };
       const r = await api("/admin/stages/custom", body);
       toast(r.ok ? `added: ${r.stage.label}` : `failed: ${r.error || "?"}`);
       if (r.ok) loadStagesView();
+    }
+  });
+  $("#stages-list").addEventListener("change", async (ev) => {
+    if (ev.target.id === "title-default") {
+      const r = await api("/admin/stages/titles", { default: ev.target.value });
+      toast(r.ok ? `title default → ${r.titleDefault}` : `failed: ${r.error || "?"}`);
     }
   });
 

@@ -44,16 +44,44 @@ test("a video stage keeps an http(s) url and default sound-on", async () => {
   await removeStage(v.stage.id);
 });
 
-test("buildApplyDirectives compiles each kind to setStageSource (+ theme)", () => {
-  assert.deepEqual(buildApplyDirectives({ kind: "scene" }), [{ action: "setStageSource", params: { kind: "none" } }]);
+test("buildApplyDirectives compiles each kind to setStageSource (+ theme) and titles", () => {
+  // every apply ends with a setTitles directive (the global default is slideL)
+  assert.deepEqual(buildApplyDirectives({ kind: "scene" }), [
+    { action: "setStageSource", params: { kind: "none" } },
+    { action: "setTitles", params: { show: true, anim: "slideL" } },
+  ]);
   assert.deepEqual(buildApplyDirectives({ kind: "scene", theme: "ocean" }), [
     { action: "setStageSource", params: { kind: "none" } },
     { action: "transitionTheme", params: { theme: "ocean", duration: 1.2 } },
+    { action: "setTitles", params: { show: true, anim: "slideL" } },
   ]);
-  assert.deepEqual(buildApplyDirectives({ kind: "youtube", videoId: "dQw4w9WgXcQ", muted: false }),
-    [{ action: "setStageSource", params: { kind: "youtube", id: "dQw4w9WgXcQ", muted: false } }]);
-  assert.deepEqual(buildApplyDirectives({ kind: "image", url: "https://x/y.png" }),
-    [{ action: "setStageSource", params: { kind: "image", url: "https://x/y.png" } }]);
+  assert.deepEqual(buildApplyDirectives({ kind: "youtube", videoId: "dQw4w9WgXcQ", muted: false }), [
+    { action: "setStageSource", params: { kind: "youtube", id: "dQw4w9WgXcQ", muted: false } },
+    { action: "setTitles", params: { show: true, anim: "slideL" } },
+  ]);
+  assert.deepEqual(buildApplyDirectives({ kind: "image", url: "https://x/y.png" }), [
+    { action: "setStageSource", params: { kind: "image", url: "https://x/y.png" } },
+    { action: "setTitles", params: { show: true, anim: "slideL" } },
+  ]);
+});
+
+test("a stage's own title setting overrides the global default; hide flies them out", () => {
+  // per-stage anim wins
+  assert.deepEqual(buildApplyDirectives({ kind: "scene", titleAnim: "slideU" }).at(-1),
+    { action: "setTitles", params: { show: true, anim: "slideU" } });
+  // "hide" → titles fly OUT for a clean stage
+  assert.deepEqual(buildApplyDirectives({ kind: "youtube", videoId: "dQw4w9WgXcQ", titleAnim: "hide" }).at(-1),
+    { action: "setTitles", params: { show: false, anim: "fade" } });
+});
+
+test("setTitleDefault validates and changes the effective title anim", async () => {
+  const { setTitleDefault, getTitleDefault } = await import("../../packages/ingest/src/stages.js");
+  assert.equal((await setTitleDefault("backflip")).ok, false);
+  assert.equal((await setTitleDefault("fade")).ok, true);
+  assert.equal(getTitleDefault(), "fade");
+  assert.deepEqual(buildApplyDirectives({ kind: "scene" }).at(-1),
+    { action: "setTitles", params: { show: true, anim: "fade" } });
+  await setTitleDefault("slideL"); // restore for other tests
 });
 
 test("custom stages are capped at 24", async () => {

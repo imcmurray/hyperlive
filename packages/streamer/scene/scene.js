@@ -645,6 +645,13 @@
   // showcase transition) is queued and applied when the current one completes —
   // dropping it would mean "X wins!" followed by… nothing
   let pendingTheme = null;
+  // swap ONLY the theme-* class — never `body.className = ...`, which would also
+  // wipe state classes like `stage-sourced` (and silently re-show the opaque
+  // background over a video stage source). Preserves everything non-theme.
+  function setBodyTheme(theme) {
+    [...document.body.classList].forEach((c) => { if (c.startsWith("theme-")) document.body.classList.remove(c); });
+    document.body.classList.add("theme-" + theme);
+  }
   function crossfade(theme, duration) {
     if (!THEMES.includes(theme)) theme = currentTheme;
     if (theme === currentTheme && !transitioning) return { theme: currentTheme };
@@ -658,7 +665,7 @@
     if (!gsap) {
       // no-anim fallback
       outgoing.classList.add("is-hidden");
-      document.body.className = "theme-" + theme;
+      setBodyTheme(theme);
       active = 1 - active; currentTheme = theme; retint();
       return { theme };
     }
@@ -680,7 +687,7 @@
       onComplete() {
         outgoing.classList.add("is-hidden");
         // class now supplies the final colors; drop the inline tween overrides
-        document.body.className = "theme-" + theme;
+        setBodyTheme(theme);
         ["--c1", "--c2", "--c3"].forEach((v) => document.body.style.removeProperty(v));
         active = 1 - active;
         currentTheme = theme;
@@ -1465,6 +1472,36 @@
 
     // show/hide the CPU-rendering warning banner (operator can dismiss it)
     renderWarning(p = {}) { showWarning(p.show !== false); return { show: p.show !== false }; },
+
+    // ---- Titles: fly the overlay title block (#content) in / out ----------
+    // The kicker/headline/subhead that ride ON TOP of the stage. Stages can
+    // bring them in with a chosen animation, or hide them for a clean stage.
+    // Animates the #content CONTAINER as a group, so the headline's own
+    // perpetual float (a child tween) keeps running underneath.
+    setTitles(p = {}) {
+      const content = $("#content");
+      if (!content) return { ok: false, error: "no content layer" };
+      const show = p.show !== false;
+      const ANIMS = ["slideL", "slideR", "slideU", "slideD", "fade", "none"];
+      const anim = ANIMS.includes(p.anim) ? p.anim : "slideL";
+      const dur = clampNum(p.duration, 0.2, 3, 0.8);
+      const off = { slideL: { x: -80, y: 0 }, slideR: { x: 80, y: 0 }, slideU: { x: 0, y: 56 }, slideD: { x: 0, y: -56 }, fade: { x: 0, y: 0 }, none: { x: 0, y: 0 } }[anim];
+      if (!gsap || anim === "none") {
+        gsap && gsap.killTweensOf(content);
+        content.style.opacity = show ? "1" : "0";
+        content.style.transform = "";
+        return { ok: true, show, anim: "none" };
+      }
+      gsap.killTweensOf(content);
+      if (show) {
+        content.style.opacity = "";
+        gsap.fromTo(content, { opacity: 0, x: off.x, y: off.y },
+          { opacity: 1, x: 0, y: 0, duration: dur, ease: "power3.out", clearProps: "transform,opacity" });
+      } else {
+        gsap.to(content, { opacity: 0, x: off.x, y: off.y, duration: dur, ease: "power2.in" });
+      }
+      return { ok: true, show, anim };
+    },
 
     // ---- Overlay mode: put an external source UNDER the scene -------------
     // OPERATOR action (not viewer-reachable): pick what's on the main stage —
