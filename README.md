@@ -43,6 +43,57 @@ for the full rationale.
 | 3 | Super Chat tiers → escalating effects + pre-rendered takeover clips | partial (tiers→shoutouts done; takeover clips pending) |
 | 4 | Hardening: reconnect, watchdog, mod console (feed · bans · hold queue · kill switch) | ✅ done (1080p60 still pending) |
 
+## Mod console
+
+A self-contained, dependency-free moderator dashboard ships with the ingest
+(`packages/dashboard`, served at **`http://127.0.0.1:8090`** while the ingest
+runs — loopback-only by design; remote mods tunnel in via SSH/Tailscale
+rather than trusting hand-rolled auth).
+
+![HyperLive mod console — live stage monitor, moderation feed with superchat callout tray, show + music transport, ban list, and pending-review queue](docs/dashboard.png)
+
+<sub>The main view mid-show: realtime stage monitor (click to pop out a live
+player), the moderation feed with two gold superchats pinned in the callout
+tray awaiting an on-air thank-you, show/music transport on the left, and the
+hold queue + mod compose panel on the right.</sub>
+
+What a moderator gets:
+
+- **Live moderation feed** (SSE, with replay on reload): every chat event and
+  its verdict — applied, held, blocked, or cooldown-skipped. Filter chips
+  (mod / music / vote / 💰 superchat), author/text search, pause, and
+  hover-freeze so rows hold still while you aim.
+- **One-click overrides**: click a `skip` chip to apply a cooldown-skipped
+  message anyway; approve or reject held messages from the pending queue;
+  replay any applied directive.
+- **Superchat pipeline**: paid messages render as gold rows, trigger automated
+  on-stage recognition (card / shoutout / burst, scaled by amount tier), and
+  pin to a pulsing callout tray until the host clicks ★ to mark them thanked
+  on air. Follow-up pipeline events (queued song, callout) fold into the same
+  row.
+- **USERS view**: a directory of everyone who interacted this session — click
+  through to their full history plus mute / unmute / kick (10 m) / timeout
+  (1 h) / ban / unban. All enforced locally at the gate, so OAuth stays
+  `youtube.readonly`; bans persist across restarts with expiring timeouts.
+- **AUTOS view**: event → animation bindings. Toggle the builtin recognitions
+  (superchat, first-time welcome, vote winner, like milestones) and pick their
+  style, or add custom bindings — *(event, vetted action, params)* with
+  `{who}`/`{amount}`-style placeholders, never code. Every automation can be
+  **previewed off-air** into a scene twin the broadcast capture can't see,
+  streamed back into a dashboard modal — test animations without watching
+  (or polluting) the live stream.
+- **Show operations**: the `live.sh` transport verbs as buttons (go on air,
+  break, tech, intro, outro/sign-off), music controls (skip / fade / live
+  mode) with an up-next queue and clickable song links, stream vitals in the
+  top bar, and a guarded two-click kill switch.
+- **Mod compose**: moderators author raw HTML/CSS cards that pre-render
+  off-air (JS disabled, sandboxed) before being queued to the stage.
+
+![HyperLive mod console — AUTOS view with builtin recognitions and style pickers](docs/dashboard-autos.png)
+
+<sub>The AUTOS view: builtin recognitions with per-event style pickers and
+on/off switches; custom automations appear below with off-air ▶ previews.</sub>
+
 ## Quick start (Phase 0)
 
 ```bash
@@ -62,7 +113,7 @@ packages/
   streamer/   ✅ Phase 0: scene + browser capture + ffmpeg→RTMP + /mutate
   director/      Phase 2: Claude brain that emits validated directives
   ingest/        Phase 1/3: YouTube chat + Super Chat ingestion + moderation
-  dashboard/  ✅ Phase 4: mod console — live feed, bans, hold queue, kill switch
+  dashboard/  ✅ Phase 4: mod console — feed, users, automations, superchats, transport
 docs/phase0.md   transport spike walkthrough
 scripts/         mutate.sh / mutate-file.sh helpers
 ```
