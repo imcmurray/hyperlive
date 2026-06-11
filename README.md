@@ -124,6 +124,13 @@ What a moderator gets:
   **previewed off-air** into a scene twin the broadcast capture can't see,
   streamed back into a dashboard modal — test animations without watching
   (or polluting) the live stream.
+- **STAGES view**: presets for *what's on the main video* — the native
+  generative scene, or an external source (a YouTube video, a direct video/HLS
+  URL, an image), each with an optional theme. **GO LIVE** switches the
+  broadcast stage instantly, even mid-show; **▶** previews a stage off-air in
+  the scene twin first. Operators define their own stages (persisted), so
+  "co-watch a YouTube stream", "ambient loop", and "back to the scene" become
+  one-click switches. (YouTube/video stages need `AUDIO_MODE=source` for sound.)
 - **Show operations**: the `live.sh` transport verbs as buttons (go on air,
   break, tech, intro, outro/sign-off), music controls (skip / fade / live
   mode) with an up-next queue and clickable song links, stream vitals in the
@@ -135,6 +142,12 @@ What a moderator gets:
 
 <sub>The AUTOS view: builtin recognitions with per-event style pickers and
 on/off switches; custom automations appear below with off-air ▶ previews.</sub>
+
+![HyperLive mod console — STAGES view: scene presets and a YouTube source, with GO LIVE switching](docs/dashboard-stages.png)
+
+<sub>The STAGES view: the native scene presets plus an operator-defined YouTube
+stage (active, highlighted). GO LIVE switches the broadcast stage mid-show; ▶
+previews it off-air; the add-stage form defines new ones.</sub>
 
 ## Quick start (Phase 0)
 

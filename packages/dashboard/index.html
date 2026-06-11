@@ -231,6 +231,12 @@
   }
   .arow .alabel { color: #cfe8cf; font-size: 14px; }
   .arow .adesc { color: var(--dim); font-size: 11px; margin-top: 2px; }
+  /* stages view: variable button count, so flex not the autos grid */
+  .stage-row { display: flex; gap: 10px; align-items: center; }
+  .stage-row > div:first-child { flex: 1; min-width: 0; }
+  .stage-row.is-active { background: #0e1f15; border-left: 2px solid var(--green); }
+  .stage-row .btn[data-apply] { color: var(--green); border-color: #234c32; }
+  .kbadge { font: 9px var(--mono); padding: 1px 5px; border: 1px solid var(--line); border-radius: 3px; color: var(--dim); margin-left: 6px; text-transform: uppercase; vertical-align: middle; }
   .arow select {
     background: #0c0f0c; border: 1px solid var(--line); color: var(--txt);
     font: 11px var(--mono); padding: 5px 7px; border-radius: 3px; width: 100%;
@@ -361,17 +367,7 @@
       <button data-music="fadein">FADE IN</button>
     </div>
     <div id="upnext"></div>
-    <h2>STAGE SOURCE</h2>
-    <form id="stage-form" style="padding:8px">
-      <input id="stage-input" placeholder="YouTube URL or id (overlay mode)" autocomplete="off">
-      <div class="ctl-grid" style="padding:6px 0 0">
-        <button data-stage="youtube">▶ SET SOURCE</button>
-        <button data-stage="none" class="danger">✕ CLEAR</button>
-      </div>
-      <label style="display:flex;align-items:center;gap:6px;font-size:10px;opacity:.7;padding:4px 0 0">
-        <input type="checkbox" id="stage-muted" style="width:auto"> mute (audio needs AUDIO_MODE=source)
-      </label>
-    </form>
+    <div class="stat"><div class="k">STAGE</div><div class="v cyan" id="s-stage">scene</div></div>
     <h2>BAN LIST</h2>
     <div class="scroll" id="bans"></div>
     <form id="ban-form">
@@ -385,7 +381,7 @@
   <section>
     <h2>MODERATION FEED — LIVE</h2>
     <div id="toolbar">
-      <div class="vswitch"><button id="v-feed" class="active">FEED</button><button id="v-users">USERS</button><button id="v-autos">AUTOS</button></div>
+      <div class="vswitch"><button id="v-feed" class="active">FEED</button><button id="v-users">USERS</button><button id="v-autos">AUTOS</button><button id="v-stages">STAGES</button></div>
       <button class="fchip active" data-f="all">ALL</button>
       <button class="fchip" data-f="blocked">BLOCKED</button>
       <button class="fchip" data-f="held">HELD</button>
@@ -403,6 +399,7 @@
       <div id="user-detail" style="display:none"></div>
     </div>
     <div class="scroll" id="autowrap" style="display:none"><div id="autos-list"></div></div>
+    <div class="scroll" id="stageswrap" style="display:none"><div id="stages-list"></div></div>
   </section>
 
   <!-- right: review queue -->
@@ -698,6 +695,7 @@
     $("#s-song").textContent = st.music?.title ? `${st.music.title} — ${st.music.artist}` : "—";
     $("#s-hold").textContent = st.holdCards ? "HOLD FOR REVIEW" : "AUTO (vision gate)";
     $("#s-hold").className = "v " + (st.holdCards ? "red" : "green");
+    if (st.stage) $("#s-stage").textContent = st.stage.label;
     musicMode = st.music?.mode || "live";
     $("#m-mode").textContent = musicMode === "intro" ? "→ LIVE" : "→ INTRO";
     const nexts = [...(st.queue?.queue || []), ...(st.queue?.rotation || [])].slice(0, 3);
@@ -755,22 +753,6 @@
     api("/admin/music", body).then((r) => { toast(r.ok !== false ? `music: ${op}` : `music off / failed`); setTimeout(refresh, 800); });
   });
 
-  // ---- stage source (overlay mode) ----
-  $("#stage-form").addEventListener("click", (ev) => {
-    const b = ev.target.closest("button[data-stage]");
-    if (!b) return;
-    ev.preventDefault();
-    const kind = b.dataset.stage;
-    if (kind === "none") {
-      api("/admin/stage", { kind: "none" }).then((r) => { toast(r.ok !== false ? "stage source cleared" : `failed: ${r.error || "?"}`); });
-      return;
-    }
-    const val = $("#stage-input").value.trim();
-    if (!val) { toast("paste a YouTube URL or id first"); return; }
-    api("/admin/stage", { kind: "youtube", url: val, id: val, muted: $("#stage-muted").checked })
-      .then((r) => { toast(r.ok !== false ? `stage source → ${r.id || "set"}` : `failed: ${r.error || "?"}`); });
-  });
-
   $("#bans").addEventListener("click", (ev) => {
     const b = ev.target.closest("button[data-unban]");
     if (!b) return;
@@ -824,22 +806,25 @@
   };
   function setView(v) {
     view = v;
-    for (const [id, name] of [["#v-feed", "feed"], ["#v-users", "users"], ["#v-autos", "autos"]]) {
+    for (const [id, name] of [["#v-feed", "feed"], ["#v-users", "users"], ["#v-autos", "autos"], ["#v-stages", "stages"]]) {
       $(id).classList.toggle("active", v === name);
     }
     $("#feedwrap").style.display = v === "feed" ? "" : "none";
     $("#userswrap").style.display = v === "users" ? "" : "none";
     $("#autowrap").style.display = v === "autos" ? "" : "none";
+    $("#stageswrap").style.display = v === "stages" ? "" : "none";
     clearInterval(usersTimer);
     if (v === "users") {
       loadUsers();
       usersTimer = setInterval(() => (currentUser ? loadUser(currentUser) : loadUsers()), 5000);
     } else { currentUser = null; }
     if (v === "autos") loadAutos();
+    if (v === "stages") loadStagesView();
   }
   $("#v-feed").addEventListener("click", () => setView("feed"));
   $("#v-users").addEventListener("click", () => setView("users"));
   $("#v-autos").addEventListener("click", () => setView("autos"));
+  $("#v-stages").addEventListener("click", () => setView("stages"));
 
   // ---- AUTOMATIONS view: event → animation bindings (builtin + custom) ----
   async function loadAutos() {
@@ -926,6 +911,74 @@
     const r = await api("/admin/automations", { key: s.dataset.style, style: s.value });
     toast(r.ok ? `${s.dataset.style} → ${s.value}` : `failed: ${r.error || "?"}`);
     loadAutos();
+  });
+
+  // ---- STAGES view: presets for the main video + live switching ----
+  const stageSummary = (s) =>
+    s.kind === "scene" ? (s.theme ? `native scene · ${s.theme}` : "native generative scene")
+    : s.kind === "youtube" ? `YouTube ${esc(s.videoId)}${s.muted ? " · muted" : " · 🔊"}`
+    : s.kind === "video" ? `video${s.muted ? " · muted" : " · 🔊"} · ${esc((s.url || "").replace(/^https?:\/\//, "").slice(0, 36))}`
+    : s.kind === "image" ? `image · ${esc((s.url || "").replace(/^https?:\/\//, "").slice(0, 36))}`
+    : esc(s.kind);
+  const stageRow = (s, active) => `
+    <div class="arow stage-row ${s.id === active ? "is-active" : ""}" data-id="${esc(s.id)}">
+      <div>
+        <div class="alabel">${s.id === active ? "▶ " : ""}${esc(s.label)} <span class="kbadge">${esc(s.kind)}</span></div>
+        <div class="adesc">${stageSummary(s)}</div>
+      </div>
+      <button class="btn" data-apply="${esc(s.id)}" title="switch the LIVE stage to this now">GO LIVE</button>
+      <button class="btn" data-spreview="${esc(s.id)}" title="preview off-air in the twin (no broadcast risk)">▶</button>
+      ${s.builtin ? "" : `<button class="btn danger" data-sdel="${esc(s.id)}" title="delete this stage">✕</button>`}
+    </div>`;
+  async function loadStagesView() {
+    const r = await api("/admin/stages").catch(() => null);
+    if (!r?.ok || view !== "stages") return;
+    const rows = [...r.builtins, ...r.custom].map((s) => stageRow(s, r.active)).join("");
+    $("#stages-list").innerHTML = `
+      <h2>STAGES — WHAT'S ON THE MAIN VIDEO</h2>
+      <div class="adesc" style="padding:0 0 6px">GO LIVE switches the broadcast stage instantly (works mid-show); ▶ previews off-air first. YouTube/video stages need <b>AUDIO_MODE=source</b> for sound.</div>
+      ${rows}
+      <h2>ADD A STAGE</h2>
+      <div class="arow" id="stage-add" style="grid-template-columns:1fr">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <input id="sa-label" placeholder="name…" style="flex:1;min-width:110px;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px">
+          <select id="sa-kind"><option value="youtube">youtube</option><option value="video">video/HLS</option><option value="image">image</option><option value="scene">scene</option></select>
+          <input id="sa-source" placeholder="YouTube URL/id, or media URL" style="flex:2;min-width:160px;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px">
+          <input id="sa-theme" placeholder="theme (optional)" style="width:120px;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px">
+          <label style="display:flex;align-items:center;gap:4px;font-size:10px;opacity:.75"><input type="checkbox" id="sa-muted" style="width:auto"> mute</label>
+          <button class="btn" id="sa-add">+ ADD</button>
+        </div>
+      </div>`;
+  }
+  $("#stages-list").addEventListener("click", async (ev) => {
+    const ap = ev.target.closest("[data-apply]");
+    if (ap) {
+      ap.textContent = "…";
+      const r = await api("/admin/stages/apply", { id: ap.dataset.apply });
+      toast(r.ok ? `stage → live (${r.fired})` : `failed: ${r.error || "?"}`);
+      refresh(); return loadStagesView();
+    }
+    const pv = ev.target.closest("[data-spreview]");
+    if (pv) {
+      openPreviewTwin(); // boots + shows the off-air twin
+      const r = await api("/admin/stages/apply", { id: pv.dataset.spreview, preview: true });
+      toast(r.ok ? "previewing stage (off-air)" : `preview failed: ${r.error || "?"}`);
+      if (!r.ok) closeLive();
+      return;
+    }
+    const del = ev.target.closest("[data-sdel]");
+    if (del) {
+      if (!confirm("Delete this stage?")) return;
+      await api("/admin/stages/custom", { id: del.dataset.sdel, remove: true });
+      toast("deleted"); return loadStagesView();
+    }
+    if (ev.target.closest("#sa-add")) {
+      const kind = $("#sa-kind").value;
+      const body = { label: $("#sa-label").value.trim(), kind, source: $("#sa-source").value.trim(), theme: $("#sa-theme").value.trim(), muted: $("#sa-muted").checked };
+      const r = await api("/admin/stages/custom", body);
+      toast(r.ok ? `added: ${r.stage.label}` : `failed: ${r.error || "?"}`);
+      if (r.ok) loadStagesView();
+    }
   });
 
   // the toolbar filter applies here too: chips → users with that kind of

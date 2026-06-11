@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { ban, unban, mute, unmute, listBans, listMutes, isBanned, isMuted } from "./bans.js";
 import { listAutomations, setAutomation, addCustom, updateCustom, buildPreviewDirectives } from "./automations.js";
+import { listStages, getStage, addStage, removeStage, setActive, buildApplyDirectives } from "./stages.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DASH_HTML = path.resolve(__dirname, "../../dashboard/index.html");
@@ -178,6 +179,8 @@ export function startAdmin({ log = console.log } = {}) {
           proxyGet(`${config.controlBase}/music/status`),
           proxyGet(`${config.controlBase}/music/queue`),
         ]);
+        const stages = listStages();
+        const activeStage = getStage(stages.active);
         return json(res, 200, {
           ok: true,
           bans: listBans(),
@@ -186,6 +189,7 @@ export function startAdmin({ log = console.log } = {}) {
           holdCards: config.holdCards,
           vitals: vitalsProvider(),
           scAwait: [...scAwait.values()],
+          stage: activeStage ? { id: activeStage.id, label: activeStage.label, kind: activeStage.kind } : null,
         });
       }
 
@@ -345,6 +349,40 @@ export function startAdmin({ log = console.log } = {}) {
           fired.push(d.action);
         }
         return json(res, 200, { ok: true, fired: fired.join("+"), offair: b.live !== true });
+      }
+
+      // ---- stages: presets for the main video + live switching ----
+      if (route === "GET /admin/stages") {
+        return json(res, 200, { ok: true, ...listStages() });
+      }
+      // add / remove a custom stage
+      if (route === "POST /admin/stages/custom") {
+        const b = await readJson(req);
+        let out;
+        if (b.remove) out = await removeStage(String(b.id || ""));
+        else out = await addStage({ label: b.label, kind: b.kind, source: b.source, url: b.url, id: b.id, muted: b.muted, theme: b.theme });
+        if (out.ok) publishFeed({ stage: "stage_source", comment: { author: "operator", text: b.remove ? `stage removed: ${b.id}` : `stage added: ${out.stage?.label}` } });
+        return json(res, out.ok ? 200 : 400, out);
+      }
+      // apply a stage LIVE (or preview it off-air with {preview:true})
+      if (route === "POST /admin/stages/apply") {
+        const b = await readJson(req);
+        const stage = getStage(String(b.id || ""));
+        if (!stage) return json(res, 404, { ok: false, error: "unknown stage" });
+        const directives = buildApplyDirectives(stage);
+        const target = b.preview === true ? `${config.controlBase}/preview/mutate` : `${config.controlBase}/mutate`;
+        let fired = [];
+        for (const d of directives) {
+          const r = await fetch(target, {
+            method: "POST", signal: AbortSignal.timeout(30000), // yt-dlp resolve + twin cold-start
+            headers: { "content-type": "application/json" }, body: JSON.stringify(d),
+          }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+          if (r.ok === false) return json(res, 502, { ok: false, error: r.error || "stage target rejected" });
+          fired.push(d.action);
+        }
+        if (b.preview !== true) await setActive(stage.id);
+        publishFeed({ stage: "stage_source", comment: { author: "operator", text: `${b.preview ? "preview" : "→ STAGE"}: ${stage.label}` } });
+        return json(res, 200, { ok: true, applied: stage.id, fired: fired.join("+"), offair: b.preview === true });
       }
 
       // ---- user directory: everyone who has interacted this session ----

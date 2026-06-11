@@ -259,6 +259,16 @@ game or camera feed, which the interaction stack can't address at all.
 "just-chatting" each become packs in the §2 sense — a source choice + the
 overlay widgets that suit it, reusing the whole interaction stack unchanged.
 
+**Operator surface (done): the STAGES view.** A stage is a persisted preset —
+`{kind: scene|youtube|video|image, source, theme}` — that compiles to a
+`setStageSource` (+ `transitionTheme`) directive. The dashboard's STAGES view
+lists builtin + operator-defined stages, **GO LIVE** switches the broadcast
+stage instantly (verified mid-show), and **▶** previews a stage off-air in the
+scene twin first. The registry (`stages.js`) mirrors the automations pattern:
+validated/allowlisted, count-capped, persisted, operator-only (never
+chat-reachable). This is the concrete answer to "let a mod set up and switch
+stages during an on-air event."
+
 **Audio (done).** `AUDIO_MODE=source` brings the PulseAudio null-sink up as
 Chromium's **default output** and points ffmpeg at its monitor — so a video
 stage source's sound is captured the same proven way the DJ's music is. The one

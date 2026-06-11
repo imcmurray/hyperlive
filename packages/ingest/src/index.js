@@ -16,6 +16,7 @@ import { createMusic, parseSunoShare, isLikeCommand, hasHeart } from "./music.js
 import { authorCard, parseCardCommand } from "./card-author.js";
 import { isBanned, isMuted, loadBans } from "./bans.js";
 import { automation, loadAutomations, setAutomationPoster, emitAutomation, superchatDirective } from "./automations.js";
+import { loadStages } from "./stages.js";
 import { startAdmin, publishFeed, enqueuePending, previewMarkup, setVitalsProvider, setReplayHandler } from "./admin.js";
 import { unitsSpent } from "./quota.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
@@ -251,6 +252,7 @@ async function main() {
   console.log(`[ingest] moderation: rate=${config.ratePerMin}/min, blocklist=on, llm=${config.moderationLLM}`);
   await loadAutomations();
   setAutomationPoster(postMutate); // custom automations + previews fire through the normal bus
+  await loadStages();
   const banCount = await loadBans();
   if (banCount) console.log(`[ingest] ban list: ${banCount} entr${banCount === 1 ? "y" : "ies"}`);
   setVitalsProvider(() => ({
