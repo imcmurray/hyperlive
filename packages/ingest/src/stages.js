@@ -34,6 +34,14 @@ const BUILTINS = [
   { id: "ex-bbb-hls", label: "Big Buck Bunny · HLS", kind: "video", url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", desc: "HLS test stream (hls.js) — plays with audio" },
   { id: "ex-bipbop", label: "Apple BipBop · HLS", kind: "video", url: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8", desc: "Apple's reference HLS stream" },
   { id: "ex-bbb-mp4", label: "Big Buck Bunny · MP4", kind: "video", url: "https://www.w3schools.com/html/mov_bbb.mp4", desc: "direct progressive MP4 — plays with audio" },
+  // YouTube examples (resolved via yt-dlp → played with audio under
+  // AUDIO_MODE=source). One durable VOD + one live cam (the co-watch use case;
+  // a live stream may rotate, then it degrades to a muted embed).
+  { id: "ex-yt-zoo", label: "YouTube · Me at the Zoo", kind: "youtube", videoId: "jNQXAC9IVRw", desc: "the first YouTube video — a durable VOD example" },
+  { id: "ex-yt-nature", label: "YouTube · Nature Live Cam", kind: "youtube", videoId: "DGIXT7ce3vQ", desc: "a live nature stream — the live-event co-watch use case" },
+  // image backdrops (load straight in the browser; no audio)
+  { id: "ex-img-forest", label: "Image · Mountain Forest", kind: "image", url: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1280&q=80", desc: "a static image backdrop (Unsplash)" },
+  { id: "ex-img-backdrop", label: "Image · Random Backdrop", kind: "image", url: "https://picsum.photos/seed/hyperlive/1280/720", desc: "a static image backdrop" },
 ];
 
 let state = null; // { custom: [stage], active: id, titleDefault }
