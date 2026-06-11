@@ -1170,10 +1170,22 @@
 
     // rewrite the scrolling ticker messages (sanitised, capped) — seamless
     setTicker(p = {}) {
+      const host = $("#ticker-cards");
+      // hide the ticker entirely (a stage can switch it off)
+      if (p.show === false) {
+        if (tickTimer) { if (tickTimer.kill) tickTimer.kill(); else clearTimeout(tickTimer); tickTimer = null; }
+        if (host) {
+          if (gsap) gsap.to(host, { opacity: 0, duration: 0.4, ease: "power2.in", onComplete: () => { host.textContent = ""; } });
+          else { host.textContent = ""; host.style.opacity = "0"; }
+        }
+        return { ok: true, show: false };
+      }
+      // make sure it's visible again (after a prior hide)
+      if (host) { if (gsap) gsap.set(host, { opacity: 1 }); else host.style.opacity = ""; }
       const items = (Array.isArray(p.items) ? p.items : [])
         .map((s) => clean(s, 60)).filter(Boolean).slice(0, 8);
-      if (!items.length) return { ok: false };
-      return startTickerCards(items);
+      // new items → rotate them; none → just re-show the current set
+      return startTickerCards(items.length ? items : undefined);
     },
 
     // toggle a named effect on/off — fades in/out (no hard cut)

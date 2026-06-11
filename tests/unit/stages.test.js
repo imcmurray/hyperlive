@@ -177,6 +177,28 @@ test("skipSource omits setStageSource so a re-apply doesn't restart the video", 
   assert.notEqual(sourceKey({ kind: "youtube", videoId: "aaaaaaaaaaa" }), sourceKey({ kind: "scene" }));
 });
 
+test("showTicker drives the ticker directive: off→hide, on+msgs→items, on→re-show", async () => {
+  // hidden
+  assert.deepEqual(buildApplyDirectives({ kind: "scene", showTicker: false }).find((d) => d.action === "setTicker"),
+    { action: "setTicker", params: { show: false } });
+  // shown with messages
+  assert.deepEqual(buildApplyDirectives({ kind: "scene", showTicker: true, ticker: ["a", "b"] }).find((d) => d.action === "setTicker"),
+    { action: "setTicker", params: { items: ["a", "b"] } });
+  // shown, no messages → re-show the current ticker
+  assert.deepEqual(buildApplyDirectives({ kind: "scene", showTicker: true }).find((d) => d.action === "setTicker"),
+    { action: "setTicker", params: { show: true } });
+  // a raw stage without showTicker (back-compat) emits no ticker directive
+  assert.equal(buildApplyDirectives({ kind: "scene" }).some((d) => d.action === "setTicker"), false);
+});
+
+test("normalize defaults showTicker to true; explicit false is kept", async () => {
+  const on = await addStage({ kind: "scene", ticker: "hi" });
+  assert.equal(getStage(on.stage.id).showTicker, true);
+  const off = await addStage({ kind: "scene", showTicker: false });
+  assert.equal(getStage(off.stage.id).showTicker, false);
+  await removeStage(on.stage.id); await removeStage(off.stage.id);
+});
+
 test("ticker accepts a newline string, clamps to 8, strips blank lines", async () => {
   const add = await addStage({ kind: "scene", ticker: "alpha\n\nbeta\n  \ngamma" });
   assert.deepEqual(getStage(add.stage.id).ticker, ["alpha", "beta", "gamma"]);

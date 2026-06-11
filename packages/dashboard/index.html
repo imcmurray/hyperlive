@@ -1013,7 +1013,7 @@
           <span class="kbadge">${esc(s.kind)}</span>
           ${s.titleAnim === "hide" ? `<span class="kbadge t">titles off</span>` : s.titleAnim ? `<span class="kbadge t">titles ${esc(TITLE_LABELS[s.titleAnim] || s.titleAnim)}</span>` : ""}
           ${s.headline || s.kicker || s.subhead ? `<span class="kbadge t">custom titles</span>` : ""}
-          ${s.ticker && s.ticker.length ? `<span class="kbadge t">ticker ${s.ticker.length}</span>` : ""}
+          ${s.showTicker === false ? `<span class="kbadge t">ticker off</span>` : s.ticker && s.ticker.length ? `<span class="kbadge t">ticker ${s.ticker.length}</span>` : ""}
           ${s.customized ? `<span class="kbadge" style="color:#7a9">edited</span>` : ""}
         </div>
         <div class="sub">${stageSummary(s)}</div>
@@ -1081,8 +1081,8 @@
           <input id="sa-subhead" class="grow" placeholder="subhead text">
         </div>
         <div class="line" style="align-items:flex-start">
-          <span style="font-size:10px;color:var(--dim);padding-top:7px;width:46px">ticker</span>
-          <textarea id="sa-ticker" class="grow" placeholder="one ticker message per line (up to 8)" style="height:52px;resize:vertical;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px"></textarea>
+          <label style="padding-top:6px;white-space:nowrap"><input type="checkbox" id="sa-show-ticker" checked style="width:auto"> show ticker</label>
+          <textarea id="sa-ticker" class="grow" placeholder="one message per line (up to 8) — blank keeps the default ticker" style="height:52px;resize:vertical;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px"></textarea>
         </div>
         <div class="line">
           <button class="btn" id="sa-cancel" style="margin-left:auto;display:none">cancel</button>
@@ -1110,6 +1110,7 @@
     $("#sa-headline").value = s.headline || "";
     $("#sa-subhead").value = s.subhead || "";
     $("#sa-ticker").value = (s.ticker || []).join("\n");
+    $("#sa-show-ticker").checked = s.showTicker !== false;
     syncAddForm();
     $("#sa-heading").textContent = `EDIT STAGE — ${s.label}`;
     $("#sa-add").textContent = "✓ SAVE";
@@ -1126,6 +1127,9 @@
     // the animation picker only matters when titles are shown
     const showT = $("#sa-show-titles"), anim = $("#sa-titles");
     if (showT && anim) { anim.disabled = !showT.checked; anim.parentElement.style.opacity = showT.checked ? "1" : ".4"; }
+    // the ticker textarea only matters when the ticker is shown
+    const showTk = $("#sa-show-ticker"), tk = $("#sa-ticker");
+    if (showTk && tk) { tk.disabled = !showTk.checked; tk.style.opacity = showTk.checked ? "1" : ".4"; }
   }
   $("#stages-list").addEventListener("click", async (ev) => {
     const kb = ev.target.closest("[data-skind]");
@@ -1173,7 +1177,8 @@
         muted: $("#sa-muted").checked,
         features: readFeatBoxes(),
         kicker: $("#sa-kicker").value.trim(), headline: $("#sa-headline").value.trim(),
-        subhead: $("#sa-subhead").value.trim(), ticker: $("#sa-ticker").value,
+        subhead: $("#sa-subhead").value.trim(),
+        ticker: $("#sa-ticker").value, showTicker: $("#sa-show-ticker").checked,
       };
       if (editStageId) body.id = editStageId; // edit instead of add
       const r = await api("/admin/stages/custom", body);
@@ -1187,7 +1192,7 @@
     }
   });
   $("#stages-list").addEventListener("change", async (ev) => {
-    if (ev.target.id === "sa-kind" || ev.target.id === "sa-show-titles") return syncAddForm();
+    if (["sa-kind", "sa-show-titles", "sa-show-ticker"].includes(ev.target.id)) return syncAddForm();
     if (ev.target.id === "title-default") {
       const r = await api("/admin/stages/titles", { default: ev.target.value });
       toast(r.ok ? `title default → ${r.titleDefault}` : `failed: ${r.error || "?"}`);

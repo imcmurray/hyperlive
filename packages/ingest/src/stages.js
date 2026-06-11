@@ -58,7 +58,7 @@ const ytId = (s) => {
 const httpUrl = (u) => { try { const x = new URL(String(u)); return (x.protocol === "https:" || x.protocol === "http:") ? x.href : null; } catch { return null; } };
 
 // validate + normalize an incoming stage definition (operator input)
-function normalize({ label, kind, source, url, id, muted, theme, titles, features, headline, kicker, subhead, ticker } = {}) {
+function normalize({ label, kind, source, url, id, muted, theme, titles, features, headline, kicker, subhead, ticker, showTicker } = {}) {
   kind = String(kind || "").toLowerCase();
   if (!STAGE_KINDS.includes(kind)) return { error: `kind must be ${STAGE_KINDS.join("|")}` };
   const out = { kind, label: String(label || "").slice(0, 60) };
@@ -81,6 +81,7 @@ function normalize({ label, kind, source, url, id, muted, theme, titles, feature
       .map((s) => txt(s, 60)).filter(Boolean).slice(0, 8);
     if (items.length) out.ticker = items;
   }
+  out.showTicker = showTicker !== false; // explicit on every stage (default shown)
   if (kind === "youtube") {
     // NB: videoId (the 11-char YouTube id), NOT id — id is the stage's own
     // unique key, assigned by addStage; conflating them clobbers one.
@@ -244,7 +245,12 @@ export function buildApplyDirectives(stage, { skipSource = false } = {}) {
   d.push(anim === "hide"
     ? { action: "setTitles", params: { show: false, anim: "fade" } }
     : { action: "setTitles", params: { show: true, anim } });
-  // bottom ticker messages (the rotating cards)
-  if (stage.ticker && stage.ticker.length) d.push({ action: "setTicker", params: { items: stage.ticker } });
+  // bottom ticker messages (the rotating cards). showTicker is explicit on
+  // normalized stages, so every real apply sets the ticker's visibility:
+  //   off → hide it · has messages → rotate them · on/no messages → re-show.
+  // (raw stage objects without showTicker — e.g. tests — emit nothing here.)
+  if (stage.showTicker === false) d.push({ action: "setTicker", params: { show: false } });
+  else if (stage.ticker && stage.ticker.length) d.push({ action: "setTicker", params: { items: stage.ticker } });
+  else if (stage.showTicker === true) d.push({ action: "setTicker", params: { show: true } });
   return d;
 }
