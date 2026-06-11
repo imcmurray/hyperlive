@@ -98,7 +98,7 @@ test("custom stages are capped at 24", async () => {
   for (const id of ids) await removeStage(id);
 });
 
-test("builtins can't be removed", async () => {
+test("removing an unmodified builtin is a no-op (it's already at default)", async () => {
   assert.equal((await removeStage("scene")).ok, false);
 });
 
@@ -112,7 +112,7 @@ test("a stage stores a full feature set; featuresOf defaults builtins to all-on"
   await removeStage(add.stage.id);
 });
 
-test("updateStage edits a custom stage in place, keeping its id; rejects unknown/builtin", async () => {
+test("updateStage edits a custom stage in place, keeping its id; rejects unknown", async () => {
   const { updateStage } = await import("../../packages/ingest/src/stages.js");
   const add = await addStage({ kind: "youtube", source: "dQw4w9WgXcQ", label: "before" });
   const id = add.stage.id;
@@ -124,6 +124,48 @@ test("updateStage edits a custom stage in place, keeping its id; rejects unknown
   assert.equal(up.stage.titleAnim, "hide");
   assert.equal(getStage(id).label, "after");
   assert.equal((await updateStage("nope", { kind: "scene" })).ok, false);
-  assert.equal((await updateStage("scene", { kind: "scene" })).ok, false); // builtin
   await removeStage(id);
+});
+
+test("ANY stage is editable: a builtin edit is an override; remove resets it", async () => {
+  const { updateStage } = await import("../../packages/ingest/src/stages.js");
+  const def = getStage("scene-ocean").theme; // "ocean"
+  // edit the builtin's features + label
+  const up = await updateStage("scene-ocean", { kind: "scene", label: "My Ocean", theme: "ocean", features: { votes: false } });
+  assert.equal(up.ok, true);
+  assert.equal(up.stage.builtin, true);
+  assert.equal(getStage("scene-ocean").label, "My Ocean");
+  assert.equal(getStage("scene-ocean").features.votes, false);
+  assert.equal(getStage("scene-ocean").customized, true);
+  // remove() RESETS a builtin to its default (doesn't delete it)
+  const rm = await removeStage("scene-ocean");
+  assert.equal(rm.ok, true);
+  assert.equal(rm.reset, true);
+  assert.equal(getStage("scene-ocean").label, "Scene · Ocean"); // back to default
+  assert.equal(getStage("scene-ocean").theme, def);
+});
+
+test("title text + ticker compile to setKicker/Headline/Subhead + setTicker", () => {
+  const stage = {
+    kind: "youtube", videoId: "dQw4w9WgXcQ",
+    kicker: "live now", headline: "FROM THE FLOOR", subhead: "stay tuned",
+    ticker: ["one", "two", "three"], titleAnim: "fade",
+  };
+  const d = buildApplyDirectives(stage);
+  const byAction = Object.fromEntries(d.map((x) => [x.action, x.params]));
+  assert.equal(byAction.setKicker.text, "live now");
+  assert.equal(byAction.setHeadline.text, "FROM THE FLOOR");
+  assert.equal(byAction.setSubhead.text, "stay tuned");
+  assert.deepEqual(byAction.setTicker.items, ["one", "two", "three"]);
+  // title text is set BEFORE the fly-in so the new text animates in
+  assert.ok(d.findIndex((x) => x.action === "setHeadline") < d.findIndex((x) => x.action === "setTitles"));
+});
+
+test("ticker accepts a newline string, clamps to 8, strips blank lines", async () => {
+  const add = await addStage({ kind: "scene", ticker: "alpha\n\nbeta\n  \ngamma" });
+  assert.deepEqual(getStage(add.stage.id).ticker, ["alpha", "beta", "gamma"]);
+  const big = await addStage({ kind: "scene", ticker: Array.from({ length: 12 }, (_, i) => `m${i}`).join("\n") });
+  assert.equal(getStage(big.stage.id).ticker.length, 8); // capped
+  await removeStage(add.stage.id);
+  await removeStage(big.stage.id);
 });

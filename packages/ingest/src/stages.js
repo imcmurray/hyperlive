@@ -47,7 +47,8 @@ const BUILTINS = [
 let state = null; // { custom: [stage], active: id, titleDefault }
 let seq = 0;
 
-const ensure = () => state || (state = { custom: [], active: "scene", titleDefault: "slideL" });
+const ensure = () => state || (state = { custom: [], active: "scene", titleDefault: "slideL", overrides: {} });
+const isBuiltin = (id) => BUILTINS.some((b) => b.id === id);
 const ytId = (s) => {
   const raw = String(s || "");
   if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
@@ -57,7 +58,7 @@ const ytId = (s) => {
 const httpUrl = (u) => { try { const x = new URL(String(u)); return (x.protocol === "https:" || x.protocol === "http:") ? x.href : null; } catch { return null; } };
 
 // validate + normalize an incoming stage definition (operator input)
-function normalize({ label, kind, source, url, id, muted, theme, titles, features } = {}) {
+function normalize({ label, kind, source, url, id, muted, theme, titles, features, headline, kicker, subhead, ticker } = {}) {
   kind = String(kind || "").toLowerCase();
   if (!STAGE_KINDS.includes(kind)) return { error: `kind must be ${STAGE_KINDS.join("|")}` };
   const out = { kind, label: String(label || "").slice(0, 60) };
@@ -67,6 +68,19 @@ function normalize({ label, kind, source, url, id, muted, theme, titles, feature
   if (t && t !== "default") out.titleAnim = TITLE_ANIMS.includes(t) ? t : "";
   // interactive features this stage runs (votes/superchats/effects/welcome/popups)
   out.features = normalizeFeatures(features);
+  // optional overlay TITLE TEXT + TICKER messages — overlays that ride on top
+  // of ANY stage (set via the existing setHeadline/setKicker/setSubhead/setTicker
+  // scene actions). Strip control chars, clamp length; only kept when non-empty.
+  const txt = (s, n) => String(s ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n);
+  let v;
+  if (headline !== undefined && (v = txt(headline, 80))) out.headline = v;
+  if (kicker !== undefined && (v = txt(kicker, 40))) out.kicker = v;
+  if (subhead !== undefined && (v = txt(subhead, 120))) out.subhead = v;
+  if (ticker !== undefined) {
+    const items = (Array.isArray(ticker) ? ticker : String(ticker).split(/\r?\n/))
+      .map((s) => txt(s, 60)).filter(Boolean).slice(0, 8);
+    if (items.length) out.ticker = items;
+  }
   if (kind === "youtube") {
     // NB: videoId (the 11-char YouTube id), NOT id — id is the stage's own
     // unique key, assigned by addStage; conflating them clobbers one.
@@ -85,7 +99,7 @@ function normalize({ label, kind, source, url, id, muted, theme, titles, feature
 }
 
 export async function loadStages() {
-  state = { custom: [], active: "scene" };
+  state = { custom: [], active: "scene", titleDefault: "slideL", overrides: {} };
   try {
     const j = JSON.parse(await readFile(FILE, "utf8"));
     if (Array.isArray(j?.custom)) {
@@ -94,10 +108,23 @@ export async function loadStages() {
         .filter(Boolean);
       seq = state.custom.reduce((m, c) => Math.max(m, Number(String(c.id).replace(/\D/g, "")) || 0), 0);
     }
+    // operator edits to builtins, re-validated through normalize
+    if (j?.overrides && typeof j.overrides === "object") {
+      for (const [k, v] of Object.entries(j.overrides)) {
+        if (isBuiltin(k)) { const n = normalize(v); if (n.stage) state.overrides[k] = n.stage; }
+      }
+    }
     if (typeof j?.active === "string") state.active = j.active;
     if (TITLE_ANIMS.includes(j?.titleDefault)) state.titleDefault = j.titleDefault;
   } catch { /* defaults */ }
   return state;
+}
+
+// a builtin with its operator override applied (override fully replaces it,
+// keeping the builtin's id + desc so it stays a resettable preset)
+function builtinEffective(b) {
+  const ov = state.overrides[b.id];
+  return ov ? { ...ov, id: b.id, desc: b.desc, customized: true } : b;
 }
 
 export function getTitleDefault() { return ensure().titleDefault; }
@@ -114,7 +141,7 @@ async function persist() { try { await saveJson(FILE, state); } catch { /* non-f
 export function listStages() {
   ensure();
   return {
-    builtins: BUILTINS.map((b) => ({ ...b, builtin: true, features: featuresOf(b) })),
+    builtins: BUILTINS.map((b) => { const s = builtinEffective(b); return { ...s, builtin: true, features: featuresOf(s) }; }),
     custom: state.custom.map((c) => ({ ...c, builtin: false, features: featuresOf(c) })),
     active: state.active,
     kinds: STAGE_KINDS,
@@ -130,7 +157,9 @@ export function featuresOf(stage) { return normalizeFeatures(stage && stage.feat
 
 export function getStage(id) {
   ensure();
-  return BUILTINS.find((b) => b.id === id) || state.custom.find((c) => c.id === id) || null;
+  const b = BUILTINS.find((x) => x.id === id);
+  if (b) return builtinEffective(b);
+  return state.custom.find((c) => c.id === id) || null;
 }
 
 export async function addStage(def = {}) {
@@ -146,19 +175,32 @@ export async function addStage(def = {}) {
 
 export async function updateStage(id, def = {}) {
   ensure();
-  const i = state.custom.findIndex((c) => c.id === id);
-  if (i < 0) return { ok: false, error: "unknown stage (builtins can't be edited)" };
   const n = normalize(def);
   if (n.error) return { ok: false, error: n.error };
+  // a builtin is edited by storing an override (it stays in the list, resettable)
+  if (isBuiltin(id)) {
+    state.overrides[id] = n.stage;
+    await persist();
+    return { ok: true, stage: { ...n.stage, id, builtin: true, customized: true } };
+  }
+  const i = state.custom.findIndex((c) => c.id === id);
+  if (i < 0) return { ok: false, error: "unknown stage" };
   state.custom[i] = { ...n.stage, id };
   await persist();
   return { ok: true, stage: state.custom[i] };
 }
 
+// custom → delete; builtin → reset to its default (clear the override)
 export async function removeStage(id) {
   ensure();
+  if (isBuiltin(id)) {
+    if (!state.overrides[id]) return { ok: false, error: "builtin is already at its default" };
+    delete state.overrides[id];
+    await persist();
+    return { ok: true, reset: true };
+  }
   const i = state.custom.findIndex((c) => c.id === id);
-  if (i < 0) return { ok: false, error: "unknown stage (builtins can't be removed)" };
+  if (i < 0) return { ok: false, error: "unknown stage" };
   state.custom.splice(i, 1);
   if (state.active === id) state.active = "scene";
   await persist();
@@ -179,9 +221,15 @@ export function buildApplyDirectives(stage) {
   else if (stage.kind === "video") d.push({ action: "setStageSource", params: { kind: "video", url: stage.url, muted: !!stage.muted } });
   else if (stage.kind === "image") d.push({ action: "setStageSource", params: { kind: "image", url: stage.url } });
   if (stage.theme) d.push({ action: "transitionTheme", params: { theme: stage.theme, duration: 1.2 } });
+  // overlay title TEXT — set before the fly-in so the new text animates in
+  if (stage.kicker) d.push({ action: "setKicker", params: { text: stage.kicker } });
+  if (stage.headline) d.push({ action: "setHeadline", params: { text: stage.headline } });
+  if (stage.subhead) d.push({ action: "setSubhead", params: { text: stage.subhead } });
   const anim = stage.titleAnim || state.titleDefault || "slideL";
   d.push(anim === "hide"
     ? { action: "setTitles", params: { show: false, anim: "fade" } }
     : { action: "setTitles", params: { show: true, anim } });
+  // bottom ticker messages (the rotating cards)
+  if (stage.ticker && stage.ticker.length) d.push({ action: "setTicker", params: { items: stage.ticker } });
   return d;
 }

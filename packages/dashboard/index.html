@@ -1012,13 +1012,19 @@
         <div class="nm ${live ? "live" : ""}">${live ? "▶ " : ""}${esc(s.label)}
           <span class="kbadge">${esc(s.kind)}</span>
           ${s.titleAnim ? `<span class="kbadge t">titles ${esc(TITLE_LABELS[s.titleAnim] || s.titleAnim)}</span>` : ""}
+          ${s.headline || s.kicker || s.subhead ? `<span class="kbadge t">custom titles</span>` : ""}
+          ${s.ticker && s.ticker.length ? `<span class="kbadge t">ticker ${s.ticker.length}</span>` : ""}
+          ${s.customized ? `<span class="kbadge" style="color:#7a9">edited</span>` : ""}
         </div>
         <div class="sub">${stageSummary(s)}</div>
         ${featPills(s)}
       </div>
       <button class="btn go" data-apply="${esc(s.id)}" title="switch the LIVE stage to this now"${live ? " disabled" : ""}>${live ? "ON AIR" : "GO LIVE"}</button>
       <button class="btn" data-spreview="${esc(s.id)}" title="preview off-air in the twin (no broadcast risk)">▶ preview</button>
-      ${s.builtin ? "" : `<button class="btn" data-sedit="${esc(s.id)}" title="edit this stage">edit</button><button class="btn danger" data-sdel="${esc(s.id)}" title="delete this stage">del</button>`}
+      <button class="btn" data-sedit="${esc(s.id)}" title="edit this stage">edit</button>
+      ${s.builtin
+        ? (s.customized ? `<button class="btn" data-sreset="${esc(s.id)}" title="reset this builtin to its default">reset</button>` : "")
+        : `<button class="btn danger" data-sdel="${esc(s.id)}" title="delete this stage">del</button>`}
     </div>`;
   };
   const TITLE_LABELS = { slideL: "fly in ← left", slideR: "fly in → right", slideU: "fly up", slideD: "fly down", fade: "fade in", none: "no anim", hide: "hidden (clean stage)" };
@@ -1064,6 +1070,18 @@
           <span style="font-size:10px;color:var(--dim)">features on this stage:</span>
           ${stageFeatKeys.map((k) => `<label><input type="checkbox" data-feat="${esc(k)}" checked style="width:auto"> ${esc(stageFeatLabels[k] || k)}</label>`).join("")}
         </div>
+        <div style="font-size:10px;color:var(--dim);padding:4px 0 0">overlay title text + ticker (optional — these ride on top of the stage):</div>
+        <div class="line">
+          <input id="sa-kicker" placeholder="kicker" style="width:150px">
+          <input id="sa-headline" class="grow" placeholder="headline text">
+        </div>
+        <div class="line">
+          <input id="sa-subhead" class="grow" placeholder="subhead text">
+        </div>
+        <div class="line" style="align-items:flex-start">
+          <span style="font-size:10px;color:var(--dim);padding-top:7px;width:46px">ticker</span>
+          <textarea id="sa-ticker" class="grow" placeholder="one ticker message per line (up to 8)" style="height:52px;resize:vertical;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px"></textarea>
+        </div>
         <div class="line">
           <button class="btn" id="sa-cancel" style="margin-left:auto;display:none">cancel</button>
           <button class="btn go" id="sa-add">+ ADD STAGE</button>
@@ -1083,6 +1101,10 @@
     $("#sa-titles").value = s.titleAnim || "default";
     $("#sa-muted").checked = !!s.muted;
     setFeatBoxes(s.features);
+    $("#sa-kicker").value = s.kicker || "";
+    $("#sa-headline").value = s.headline || "";
+    $("#sa-subhead").value = s.subhead || "";
+    $("#sa-ticker").value = (s.ticker || []).join("\n");
     $("#sa-heading").textContent = `EDIT STAGE — ${s.label}`;
     $("#sa-add").textContent = "✓ SAVE";
     $("#sa-cancel").style.display = "";
@@ -1126,10 +1148,22 @@
       await api("/admin/stages/custom", { id: del.dataset.sdel, remove: true });
       toast("deleted"); return loadStagesView();
     }
+    const rst = ev.target.closest("[data-sreset]");
+    if (rst) {
+      if (!confirm("Reset this builtin stage to its default?")) return;
+      await api("/admin/stages/custom", { id: rst.dataset.sreset, remove: true });
+      toast("reset to default"); return loadStagesView();
+    }
     if (ev.target.closest("#sa-cancel")) { return loadStagesView(); } // discard edit
     if (ev.target.closest("#sa-add")) {
       const kind = $("#sa-kind").value;
-      const body = { label: $("#sa-label").value.trim(), kind, source: $("#sa-source").value.trim(), theme: $("#sa-theme").value.trim(), titles: $("#sa-titles").value, muted: $("#sa-muted").checked, features: readFeatBoxes() };
+      const body = {
+        label: $("#sa-label").value.trim(), kind, source: $("#sa-source").value.trim(),
+        theme: $("#sa-theme").value.trim(), titles: $("#sa-titles").value, muted: $("#sa-muted").checked,
+        features: readFeatBoxes(),
+        kicker: $("#sa-kicker").value.trim(), headline: $("#sa-headline").value.trim(),
+        subhead: $("#sa-subhead").value.trim(), ticker: $("#sa-ticker").value,
+      };
       if (editStageId) body.id = editStageId; // edit instead of add
       const r = await api("/admin/stages/custom", body);
       toast(r.ok ? (editStageId ? "stage saved" : `added: ${r.stage.label}`) : `failed: ${r.error || "?"}`);

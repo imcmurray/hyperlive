@@ -367,9 +367,9 @@ export function startAdmin({ log = console.log } = {}) {
       // add / edit / remove a custom stage
       if (route === "POST /admin/stages/custom") {
         const b = await readJson(req);
-        const def = { label: b.label, kind: b.kind, source: b.source, url: b.url, muted: b.muted, theme: b.theme, titles: b.titles, features: b.features };
+        const def = { label: b.label, kind: b.kind, source: b.source, url: b.url, muted: b.muted, theme: b.theme, titles: b.titles, features: b.features, headline: b.headline, kicker: b.kicker, subhead: b.subhead, ticker: b.ticker };
         let out, verb;
-        if (b.remove) { out = await removeStage(String(b.id || "")); verb = "removed"; }
+        if (b.remove) { out = await removeStage(String(b.id || "")); verb = out.reset ? "reset" : "removed"; }
         else if (b.id) { out = await updateStage(String(b.id), def); verb = "edited"; }
         else { out = await addStage(def); verb = "added"; }
         if (out.ok) publishFeed({ stage: "stage_source", comment: { author: "operator", text: `stage ${verb}: ${out.stage?.label || b.id}` } });
