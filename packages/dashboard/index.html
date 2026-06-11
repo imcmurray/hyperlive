@@ -231,12 +231,38 @@
   }
   .arow .alabel { color: #cfe8cf; font-size: 14px; }
   .arow .adesc { color: var(--dim); font-size: 11px; margin-top: 2px; }
-  /* stages view: variable button count, so flex not the autos grid */
-  .stage-row { display: flex; gap: 10px; align-items: center; }
-  .stage-row > div:first-child { flex: 1; min-width: 0; }
-  .stage-row.is-active { background: #0e1f15; border-left: 2px solid var(--green); }
-  .stage-row .btn[data-apply] { color: var(--green); border-color: #234c32; }
-  .kbadge { font: 9px var(--mono); padding: 1px 5px; border: 1px solid var(--line); border-radius: 3px; color: var(--dim); margin-left: 6px; text-transform: uppercase; vertical-align: middle; }
+  /* ---- STAGES view: its own layout (does NOT inherit the .arow grid) ---- */
+  #stages-list h2 { margin: 14px 0 8px; }
+  #stages-list h2:first-child { margin-top: 4px; }
+  .stages-note { color: var(--dim); font-size: 11px; line-height: 1.5; padding: 0 0 10px; }
+  .stages-note b { color: var(--cyan); font-weight: 400; }
+  .title-ctl {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 12px; background: #0b140b; border: 1px solid #1b2a1b; border-radius: 4px; margin-bottom: 10px;
+  }
+  .title-ctl .lab { color: #cfe8cf; font-size: 12px; }
+  .title-ctl .sub { color: var(--dim); font-size: 10px; margin-top: 3px; }
+  .srow {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 12px; border-bottom: 1px solid #131913; border-left: 2px solid transparent;
+  }
+  .srow.is-active { background: #0e1f15; border-left-color: var(--green); }
+  .srow .meta { flex: 1; min-width: 0; }
+  .srow .nm { color: #cfe8cf; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .srow .nm.live { color: var(--green); }
+  .srow .sub { color: var(--dim); font-size: 11px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .srow .btn { flex: 0 0 auto; }
+  .srow .btn.go { color: var(--green); border-color: #234c32; }
+  .stage-add { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .stage-add .line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .stage-add input, .stage-add select {
+    background: #0c0f0c; border: 1px solid var(--line); color: var(--txt);
+    font: 11px var(--mono); padding: 7px 8px; border-radius: 3px;
+  }
+  .stage-add .grow { flex: 1; min-width: 120px; }
+  .stage-add label { font-size: 10px; color: var(--dim); display: flex; align-items: center; gap: 4px; }
+  .kbadge { font: 9px var(--mono); padding: 1px 5px; border: 1px solid var(--line); border-radius: 3px; color: var(--dim); text-transform: uppercase; }
+  .kbadge.t { color: #b9a25a; border-color: #3a3320; }
   .arow select {
     background: #0c0f0c; border: 1px solid var(--line); color: var(--txt);
     font: 11px var(--mono); padding: 5px 7px; border-radius: 3px; width: 100%;
@@ -920,16 +946,22 @@
     : s.kind === "video" ? `video${s.muted ? " · muted" : " · 🔊"} · ${esc((s.url || "").replace(/^https?:\/\//, "").slice(0, 36))}`
     : s.kind === "image" ? `image · ${esc((s.url || "").replace(/^https?:\/\//, "").slice(0, 36))}`
     : esc(s.kind);
-  const stageRow = (s, active) => `
-    <div class="arow stage-row ${s.id === active ? "is-active" : ""}" data-id="${esc(s.id)}">
-      <div>
-        <div class="alabel">${s.id === active ? "▶ " : ""}${esc(s.label)} <span class="kbadge">${esc(s.kind)}</span>${s.titleAnim ? `<span class="kbadge">titles: ${esc(TITLE_LABELS[s.titleAnim] || s.titleAnim)}</span>` : ""}</div>
-        <div class="adesc">${stageSummary(s)}</div>
+  const stageRow = (s, active) => {
+    const live = s.id === active;
+    return `
+    <div class="srow ${live ? "is-active" : ""}" data-id="${esc(s.id)}">
+      <div class="meta">
+        <div class="nm ${live ? "live" : ""}">${live ? "▶ " : ""}${esc(s.label)}
+          <span class="kbadge">${esc(s.kind)}</span>
+          ${s.titleAnim ? `<span class="kbadge t">titles ${esc(TITLE_LABELS[s.titleAnim] || s.titleAnim)}</span>` : ""}
+        </div>
+        <div class="sub">${stageSummary(s)}</div>
       </div>
-      <button class="btn" data-apply="${esc(s.id)}" title="switch the LIVE stage to this now">GO LIVE</button>
-      <button class="btn" data-spreview="${esc(s.id)}" title="preview off-air in the twin (no broadcast risk)">▶</button>
+      <button class="btn go" data-apply="${esc(s.id)}" title="switch the LIVE stage to this now"${live ? " disabled" : ""}>${live ? "ON AIR" : "GO LIVE"}</button>
+      <button class="btn" data-spreview="${esc(s.id)}" title="preview off-air in the twin (no broadcast risk)">▶ preview</button>
       ${s.builtin ? "" : `<button class="btn danger" data-sdel="${esc(s.id)}" title="delete this stage">✕</button>`}
     </div>`;
+  };
   const TITLE_LABELS = { slideL: "fly in ← left", slideR: "fly in → right", slideU: "fly up", slideD: "fly down", fade: "fade in", none: "no anim", hide: "hidden (clean stage)" };
   const titleOpts = (anims, sel, withDefault) =>
     (withDefault ? `<option value="default"${!sel ? " selected" : ""}>default (global)</option>` : "") +
@@ -940,24 +972,37 @@
     const rows = [...r.builtins, ...r.custom].map((s) => stageRow(s, r.active)).join("");
     $("#stages-list").innerHTML = `
       <h2>STAGES — WHAT'S ON THE MAIN VIDEO</h2>
-      <div class="adesc" style="padding:0 0 6px">GO LIVE switches the broadcast stage instantly (works mid-show); ▶ previews off-air first. YouTube/video stages need <b>AUDIO_MODE=source</b> for sound.</div>
-      <div class="arow" style="background:#0b140b;display:flex;gap:10px;align-items:center;justify-content:space-between">
-        <div style="flex:1"><div class="alabel">Overlay titles — global default</div><div class="adesc">how the kicker / headline / subhead fly in; a stage can override this</div></div>
-        <select id="title-default" style="flex:0 0 auto">${titleOpts(r.titleAnims, r.titleDefault, false)}</select>
+      <div class="stages-note"><b>GO LIVE</b> switches the broadcast stage instantly (works mid-show); <b>▶ preview</b> shows it off-air first. YouTube/video stages need <b>AUDIO_MODE=source</b> for sound.</div>
+      <div class="title-ctl">
+        <div><div class="lab">Overlay titles — global default</div><div class="sub">how the kicker / headline / subhead fly in; each stage can override this</div></div>
+        <select id="title-default">${titleOpts(r.titleAnims, r.titleDefault, false)}</select>
       </div>
       ${rows}
       <h2>ADD A STAGE</h2>
-      <div class="arow" id="stage-add" style="grid-template-columns:1fr">
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <input id="sa-label" placeholder="name…" style="flex:1;min-width:110px;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px">
-          <select id="sa-kind"><option value="youtube">youtube</option><option value="video">video/HLS</option><option value="image">image</option><option value="scene">scene</option></select>
-          <input id="sa-source" placeholder="YouTube URL/id, or media URL" style="flex:2;min-width:160px;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px">
-          <input id="sa-theme" placeholder="theme (optional)" style="width:120px;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px">
-          <label style="font-size:10px;opacity:.75;display:flex;align-items:center;gap:3px">titles <select id="sa-titles">${titleOpts(r.titleAnims, "", true)}</select></label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:10px;opacity:.75"><input type="checkbox" id="sa-muted" style="width:auto"> mute</label>
-          <button class="btn" id="sa-add">+ ADD</button>
+      <div class="stage-add">
+        <div class="line">
+          <input id="sa-label" class="grow" placeholder="stage name…">
+          <select id="sa-kind"><option value="youtube">youtube</option><option value="video">video / HLS</option><option value="image">image</option><option value="scene">scene</option></select>
+        </div>
+        <div class="line">
+          <input id="sa-source" class="grow" placeholder="YouTube URL or id, or a media URL">
+        </div>
+        <div class="line">
+          <input id="sa-theme" placeholder="theme (optional)" style="width:130px">
+          <label>titles <select id="sa-titles">${titleOpts(r.titleAnims, "", true)}</select></label>
+          <label><input type="checkbox" id="sa-muted" style="width:auto"> mute audio</label>
+          <button class="btn go" id="sa-add" style="margin-left:auto">+ ADD STAGE</button>
         </div>
       </div>`;
+    syncAddForm();
+  }
+  // hide the source field when kind=scene (scenes have no external source)
+  function syncAddForm() {
+    const kindSel = $("#sa-kind"); if (!kindSel) return;
+    const isScene = kindSel.value === "scene";
+    const src = $("#sa-source");
+    if (src) { src.style.display = isScene ? "none" : ""; src.parentElement.style.display = isScene ? "none" : ""; }
+    const mute = $("#sa-muted"); if (mute) mute.parentElement.style.display = (kindSel.value === "youtube" || kindSel.value === "video") ? "" : "none";
   }
   $("#stages-list").addEventListener("click", async (ev) => {
     const ap = ev.target.closest("[data-apply]");
@@ -990,6 +1035,7 @@
     }
   });
   $("#stages-list").addEventListener("change", async (ev) => {
+    if (ev.target.id === "sa-kind") return syncAddForm();
     if (ev.target.id === "title-default") {
       const r = await api("/admin/stages/titles", { default: ev.target.value });
       toast(r.ok ? `title default → ${r.titleDefault}` : `failed: ${r.error || "?"}`);
