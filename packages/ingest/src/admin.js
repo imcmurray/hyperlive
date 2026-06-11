@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { ban, unban, mute, unmute, listBans, listMutes, isBanned, isMuted } from "./bans.js";
 import { listAutomations, setAutomation, addCustom, updateCustom, buildPreviewDirectives } from "./automations.js";
-import { listStages, getStage, addStage, updateStage, removeStage, setActive, buildApplyDirectives, setTitleDefault, featuresOf } from "./stages.js";
+import { listStages, getStage, addStage, updateStage, removeStage, setActive, buildApplyDirectives, setTitleDefault, featuresOf, sourceKey } from "./stages.js";
 import { setActiveFeatures, activeFeatures } from "./features.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -380,7 +380,13 @@ export function startAdmin({ log = console.log } = {}) {
         const b = await readJson(req);
         const stage = getStage(String(b.id || ""));
         if (!stage) return json(res, 404, { ok: false, error: "unknown stage" });
-        const directives = buildApplyDirectives(stage);
+        // LIVE apply: if the source is unchanged from what's already on air, skip
+        // the setStageSource directive so the video DOESN'T restart — we just
+        // transition titles/features/ticker. (Always re-render the source for a
+        // preview; the twin needs it.) {reload:true} forces a source reload.
+        const liveNow = getStage(listStages().active);
+        const skipSource = b.preview !== true && b.reload !== true && sourceKey(liveNow) === sourceKey(stage);
+        const directives = buildApplyDirectives(stage, { skipSource });
         const target = b.preview === true ? `${config.controlBase}/preview/mutate` : `${config.controlBase}/mutate`;
         let fired = [];
         for (const d of directives) {

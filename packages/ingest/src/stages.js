@@ -209,17 +209,32 @@ export async function removeStage(id) {
 
 export async function setActive(id) { ensure(); state.active = id; await persist(); }
 
-// the directives that apply a stage live: set the source, (optionally) crossfade
-// the theme, and fly the overlay titles in/out. All vetted, clamped scene
-// actions. The title treatment is the stage's own setting, or the global
-// default when it doesn't specify one ("hide" flies them out for a clean stage).
-export function buildApplyDirectives(stage) {
+// identifies a stage's VIDEO/IMAGE source (incl. mute) so we can tell whether a
+// re-apply actually needs to reload it. Re-applying the same source would
+// restart the video — which we skip (see buildApplyDirectives { skipSource }).
+export function sourceKey(stage) {
+  if (!stage) return "none";
+  if (stage.kind === "scene") return "scene";
+  if (stage.kind === "youtube") return `youtube:${stage.videoId || ""}:${stage.muted ? "m" : ""}`;
+  if (stage.kind === "video") return `video:${stage.url || ""}:${stage.muted ? "m" : ""}`;
+  if (stage.kind === "image") return `image:${stage.url || ""}`;
+  return stage.kind;
+}
+
+// the directives that apply a stage live: (optionally) set the source, crossfade
+// the theme, fly the overlay titles in/out, set title text + ticker. All vetted,
+// clamped scene actions. { skipSource } omits the setStageSource directive when
+// the source is unchanged from what's already live — so re-applying a stage to
+// toggle its titles/features doesn't restart the video.
+export function buildApplyDirectives(stage, { skipSource = false } = {}) {
   ensure();
   const d = [];
-  if (stage.kind === "scene") d.push({ action: "setStageSource", params: { kind: "none" } });
-  else if (stage.kind === "youtube") d.push({ action: "setStageSource", params: { kind: "youtube", id: stage.videoId, muted: !!stage.muted } });
-  else if (stage.kind === "video") d.push({ action: "setStageSource", params: { kind: "video", url: stage.url, muted: !!stage.muted } });
-  else if (stage.kind === "image") d.push({ action: "setStageSource", params: { kind: "image", url: stage.url } });
+  if (!skipSource) {
+    if (stage.kind === "scene") d.push({ action: "setStageSource", params: { kind: "none" } });
+    else if (stage.kind === "youtube") d.push({ action: "setStageSource", params: { kind: "youtube", id: stage.videoId, muted: !!stage.muted } });
+    else if (stage.kind === "video") d.push({ action: "setStageSource", params: { kind: "video", url: stage.url, muted: !!stage.muted } });
+    else if (stage.kind === "image") d.push({ action: "setStageSource", params: { kind: "image", url: stage.url } });
+  }
   if (stage.theme) d.push({ action: "transitionTheme", params: { theme: stage.theme, duration: 1.2 } });
   // overlay title TEXT — set before the fly-in so the new text animates in
   if (stage.kicker) d.push({ action: "setKicker", params: { text: stage.kicker } });

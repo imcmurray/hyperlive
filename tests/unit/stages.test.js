@@ -161,6 +161,22 @@ test("title text + ticker compile to setKicker/Headline/Subhead + setTicker", ()
   assert.ok(d.findIndex((x) => x.action === "setHeadline") < d.findIndex((x) => x.action === "setTitles"));
 });
 
+test("skipSource omits setStageSource so a re-apply doesn't restart the video", async () => {
+  const { sourceKey } = await import("../../packages/ingest/src/stages.js");
+  const stage = { kind: "video", url: "https://x/v.mp4" };
+  // normal apply includes the source
+  const full = buildApplyDirectives(stage);
+  assert.ok(full.some((d) => d.action === "setStageSource"));
+  // diff apply (same source already live) omits it — only titles/etc transition
+  const diff = buildApplyDirectives(stage, { skipSource: true });
+  assert.ok(!diff.some((d) => d.action === "setStageSource"));
+  assert.ok(diff.some((d) => d.action === "setTitles"));
+  // sourceKey: same url+mute → equal; different url or mute → not equal
+  assert.equal(sourceKey({ kind: "video", url: "https://x/v.mp4" }), sourceKey({ kind: "video", url: "https://x/v.mp4" }));
+  assert.notEqual(sourceKey({ kind: "video", url: "https://x/v.mp4" }), sourceKey({ kind: "video", url: "https://x/v.mp4", muted: true }));
+  assert.notEqual(sourceKey({ kind: "youtube", videoId: "aaaaaaaaaaa" }), sourceKey({ kind: "scene" }));
+});
+
 test("ticker accepts a newline string, clamps to 8, strips blank lines", async () => {
   const add = await addStage({ kind: "scene", ticker: "alpha\n\nbeta\n  \ngamma" });
   assert.deepEqual(getStage(add.stage.id).ticker, ["alpha", "beta", "gamma"]);
