@@ -191,6 +191,20 @@ test("showTicker drives the ticker directive: off→hide, on+msgs→items, on→
   assert.equal(buildApplyDirectives({ kind: "scene" }).some((d) => d.action === "setTicker"), false);
 });
 
+test("applying a stage clears residual elements for disabled features", async () => {
+  // votes+effects OFF → the directives include voteEnd (dismiss panel) + a
+  // calming setMood (effects to off) so the live stage matches a fresh preview
+  const d = buildApplyDirectives({ kind: "scene", features: { votes: false, effects: false } });
+  assert.ok(d.some((x) => x.action === "voteEnd"));
+  const mood = d.find((x) => x.action === "setMood");
+  assert.ok(mood && mood.params.effects.sparks === -1 && mood.params.burstRate === 0);
+  // all features ON → no clears
+  const on = buildApplyDirectives({ kind: "scene", features: { votes: true, effects: true } });
+  assert.equal(on.some((x) => x.action === "voteEnd" || x.action === "setMood"), false);
+  // raw object without features → no clears (back-compat)
+  assert.equal(buildApplyDirectives({ kind: "scene" }).some((x) => x.action === "voteEnd"), false);
+});
+
 test("normalize defaults showTicker to true; explicit false is kept", async () => {
   const on = await addStage({ kind: "scene", ticker: "hi" });
   assert.equal(getStage(on.stage.id).showTicker, true);

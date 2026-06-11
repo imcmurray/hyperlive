@@ -252,5 +252,16 @@ export function buildApplyDirectives(stage, { skipSource = false } = {}) {
   if (stage.showTicker === false) d.push({ action: "setTicker", params: { show: false } });
   else if (stage.ticker && stage.ticker.length) d.push({ action: "setTicker", params: { items: stage.ticker } });
   else if (stage.showTicker === true) d.push({ action: "setTicker", params: { show: true } });
+  // Clear residual on-stage elements for any DISABLED feature, so applying the
+  // stage brings the broadcast to the same clean state the fresh preview shows.
+  // (Disabling a feature stops NEW events but doesn't remove what's already up —
+  // an open vote panel, the standing ambient-effects state.) Only meaningful on
+  // a normalized stage (features present); raw test objects skip it.
+  if (stage.features) {
+    const f = featuresOf(stage);
+    if (!f.votes) d.push({ action: "voteEnd", params: {} }); // dismiss any open vote
+    if (!f.effects) d.push({ action: "setMood", params: { intensity: 0.16, burstRate: 0, duration: 1.2,
+      effects: { particles: -1, sparks: -1, datarain: -1, bokeh: -1, fog: -1, lightning: -1 } } }); // calm to off
+  }
   return d;
 }
