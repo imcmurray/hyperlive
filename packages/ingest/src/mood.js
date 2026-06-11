@@ -9,6 +9,7 @@
 // is deferred), though setMood already supports it for a later phase.
 
 import { config } from "./config.js";
+import { getFeature } from "./features.js";
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const pick = (a) => a[(Math.random() * a.length) | 0];
@@ -146,7 +147,8 @@ export function createMoodEngine({ state, postMutate, log = () => {} }) {
 
     const changed = !!mood.subhead || Math.abs(ni - last.intensity) > 0.015 || mood.descriptor !== last.descriptor ||
       Math.abs((mood.burstRate ?? 0) - (last.burstRate ?? 0)) > 0.1 || effectsChanged(mood.effects, last.effects);
-    if (changed) {
+    // the active stage can switch ambient effects off (e.g. a clean video stage)
+    if (changed && getFeature("effects")) {
       try {
         await postMutate({ action: "setMood", params: { ...mood, duration: (tickMs / 1000) * 1.5 } });
         log(`[mood] ${mood.descriptor} · intensity ${ni.toFixed(2)} · burst ${(mood.burstRate || 0).toFixed(2)}`);

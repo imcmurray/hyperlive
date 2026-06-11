@@ -271,6 +271,19 @@
   .stage-add label { font-size: 10px; color: var(--dim); display: flex; align-items: center; gap: 4px; }
   .kbadge { font: 9px var(--mono); padding: 1px 5px; border: 1px solid var(--line); border-radius: 3px; color: var(--dim); text-transform: uppercase; }
   .kbadge.t { color: #b9a25a; border-color: #3a3320; }
+  /* stage kind-filter toolbar */
+  .skinds { display: flex; gap: 5px; flex-wrap: wrap; padding: 0 0 10px; }
+  .skinds button {
+    font: 10px var(--mono); padding: 4px 9px; border: 1px solid var(--line);
+    background: #0c0f0c; color: var(--dim); border-radius: 3px; cursor: pointer; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .skinds button.active { color: var(--green); border-color: #234c32; background: #0e1f15; }
+  /* per-stage feature pills (on a row) + checkboxes (in the form) */
+  .feats { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+  .feat { font: 8px var(--mono); padding: 1px 5px; border-radius: 7px; border: 1px solid #283228; color: #3f5540; text-transform: uppercase; letter-spacing: .03em; }
+  .feat.on { color: #6cc28a; border-color: #245232; background: #0d1c12; }
+  .featbox { display: flex; gap: 12px; flex-wrap: wrap; padding: 4px 0 2px; }
+  .featbox label { font-size: 10px; color: #cfe8cf; display: flex; align-items: center; gap: 4px; }
   .arow select {
     background: #0c0f0c; border: 1px solid var(--line); color: var(--txt);
     font: 11px var(--mono); padding: 5px 7px; border-radius: 3px; width: 100%;
@@ -948,7 +961,10 @@
   });
 
   // ---- STAGES view: presets for the main video + live switching ----
-  let lastStages = [], editStageId = null;
+  let lastStages = [], editStageId = null, stageKind = "all", stageFeatKeys = [], stageFeatLabels = {};
+  const FEAT_SHORT = { votes: "vote", superchats: "super", effects: "fx", welcome: "welcome", popups: "popups" };
+  const featPills = (s) => stageFeatKeys.length
+    ? `<div class="feats">${stageFeatKeys.map((k) => `<span class="feat ${s.features && s.features[k] ? "on" : ""}">${FEAT_SHORT[k] || k}</span>`).join("")}</div>` : "";
   // theme accent colors (mirror packages/streamer/scene/styles.css) → scene
   // swatches that match what the broadcast actually shows
   const THEME_COLS = {
@@ -998,6 +1014,7 @@
           ${s.titleAnim ? `<span class="kbadge t">titles ${esc(TITLE_LABELS[s.titleAnim] || s.titleAnim)}</span>` : ""}
         </div>
         <div class="sub">${stageSummary(s)}</div>
+        ${featPills(s)}
       </div>
       <button class="btn go" data-apply="${esc(s.id)}" title="switch the LIVE stage to this now"${live ? " disabled" : ""}>${live ? "ON AIR" : "GO LIVE"}</button>
       <button class="btn" data-spreview="${esc(s.id)}" title="preview off-air in the twin (no broadcast risk)">▶ preview</button>
@@ -1012,8 +1029,14 @@
     const r = await api("/admin/stages").catch(() => null);
     if (!r?.ok || view !== "stages") return;
     lastStages = [...r.builtins, ...r.custom];
+    stageFeatKeys = r.featureKeys || [];
+    stageFeatLabels = r.featureLabels || {};
     editStageId = null; // a fresh render clears any in-progress edit
-    const rows = lastStages.map((s) => stageRow(s, r.active)).join("");
+    const kinds = ["all", ...(r.kinds || [])];
+    const counts = Object.fromEntries(kinds.map((k) => [k, k === "all" ? lastStages.length : lastStages.filter((s) => s.kind === k).length]));
+    const kindBar = `<div class="skinds">${kinds.map((k) => `<button data-skind="${esc(k)}" class="${stageKind === k ? "active" : ""}">${esc(k)} <span style="opacity:.55">${counts[k]}</span></button>`).join("")}</div>`;
+    const shown = lastStages.filter((s) => stageKind === "all" || s.kind === stageKind);
+    const rows = shown.length ? shown.map((s) => stageRow(s, r.active)).join("") : `<div class="stages-note" style="padding:14px 12px">no ${esc(stageKind)} stages yet</div>`;
     $("#stages-list").innerHTML = `
       <h2>STAGES — WHAT'S ON THE MAIN VIDEO</h2>
       <div class="stages-note"><b>GO LIVE</b> switches the broadcast stage instantly (works mid-show); <b>▶ preview</b> shows it off-air first. YouTube/video stages need <b>AUDIO_MODE=source</b> for sound.</div>
@@ -1021,6 +1044,7 @@
         <div><div class="lab">Overlay titles — global default</div><div class="sub">how the kicker / headline / subhead fly in; each stage can override this</div></div>
         <select id="title-default">${titleOpts(r.titleAnims, r.titleDefault, false)}</select>
       </div>
+      ${kindBar}
       ${rows}
       <h2 id="sa-heading">ADD A STAGE</h2>
       <div class="stage-add">
@@ -1035,12 +1059,20 @@
           <input id="sa-theme" placeholder="theme (optional)" style="width:130px">
           <label>titles <select id="sa-titles">${titleOpts(r.titleAnims, "", true)}</select></label>
           <label><input type="checkbox" id="sa-muted" style="width:auto"> mute audio</label>
+        </div>
+        <div class="featbox" id="sa-feats">
+          <span style="font-size:10px;color:var(--dim)">features on this stage:</span>
+          ${stageFeatKeys.map((k) => `<label><input type="checkbox" data-feat="${esc(k)}" checked style="width:auto"> ${esc(stageFeatLabels[k] || k)}</label>`).join("")}
+        </div>
+        <div class="line">
           <button class="btn" id="sa-cancel" style="margin-left:auto;display:none">cancel</button>
           <button class="btn go" id="sa-add">+ ADD STAGE</button>
         </div>
       </div>`;
     syncAddForm();
   }
+  const readFeatBoxes = () => Object.fromEntries(stageFeatKeys.map((k) => [k, $(`#sa-feats [data-feat="${k}"]`)?.checked !== false]));
+  const setFeatBoxes = (f) => stageFeatKeys.forEach((k) => { const el = $(`#sa-feats [data-feat="${k}"]`); if (el) el.checked = !f || f[k] !== false; });
   // load a stage's values into the add form and switch it to edit/save mode
   function beginEditStage(s) {
     editStageId = s.id;
@@ -1050,6 +1082,7 @@
     $("#sa-theme").value = s.theme || "";
     $("#sa-titles").value = s.titleAnim || "default";
     $("#sa-muted").checked = !!s.muted;
+    setFeatBoxes(s.features);
     $("#sa-heading").textContent = `EDIT STAGE — ${s.label}`;
     $("#sa-add").textContent = "✓ SAVE";
     $("#sa-cancel").style.display = "";
@@ -1064,6 +1097,8 @@
     const mute = $("#sa-muted"); if (mute) mute.parentElement.style.display = (kindSel.value === "youtube" || kindSel.value === "video") ? "" : "none";
   }
   $("#stages-list").addEventListener("click", async (ev) => {
+    const kb = ev.target.closest("[data-skind]");
+    if (kb) { stageKind = kb.dataset.skind; return loadStagesView(); }
     const ap = ev.target.closest("[data-apply]");
     if (ap) {
       ap.textContent = "…";
@@ -1094,7 +1129,7 @@
     if (ev.target.closest("#sa-cancel")) { return loadStagesView(); } // discard edit
     if (ev.target.closest("#sa-add")) {
       const kind = $("#sa-kind").value;
-      const body = { label: $("#sa-label").value.trim(), kind, source: $("#sa-source").value.trim(), theme: $("#sa-theme").value.trim(), titles: $("#sa-titles").value, muted: $("#sa-muted").checked };
+      const body = { label: $("#sa-label").value.trim(), kind, source: $("#sa-source").value.trim(), theme: $("#sa-theme").value.trim(), titles: $("#sa-titles").value, muted: $("#sa-muted").checked, features: readFeatBoxes() };
       if (editStageId) body.id = editStageId; // edit instead of add
       const r = await api("/admin/stages/custom", body);
       toast(r.ok ? (editStageId ? "stage saved" : `added: ${r.stage.label}`) : `failed: ${r.error || "?"}`);

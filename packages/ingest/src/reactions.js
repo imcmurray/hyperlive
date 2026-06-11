@@ -6,6 +6,7 @@
 //      named welcome glow — you arrive and the world acknowledges you.
 
 import { emitAutomation } from "./automations.js";
+import { getFeature } from "./features.js";
 const EMOJI_REACT = [
   { kind: "fire", emojis: ["🔥", "⚡", "🌶", "🌶️"] },
   { kind: "love", emojis: ["❤", "❤️", "🥰", "😍", "💖", "💕", "♥️", "🩷", "💗"] },
@@ -37,15 +38,16 @@ export function createReactions({ postMutate, log = () => {}, perReactionMs = 70
     if (!seen.has(author)) {
       seen.add(author); // first-timers are tracked even when the builtin is off
       emitAutomation("first_message", { who: author });
-      if (auto.enabled) {
+      if (auto.enabled && getFeature("welcome")) {
         const kind = auto.style === "sparkle" ? "sparkle" : "welcome";
         try { await postMutate({ action: "react", params: { kind, who: author, avatar: comment.avatar || "" } }); fired.push("welcome"); log(`  ♥ WELCOME ${author}`); } catch {}
       }
     }
 
-    // 2) emoji reaction (rate-limited globally so it stays delightful, not chaotic)
+    // 2) emoji reaction popups (rate-limited globally so it stays delightful) —
+    // the active stage can switch these off for a clean look
     const kind = detect(comment.text);
-    if (kind && now - lastReactAt >= perReactionMs) {
+    if (kind && getFeature("popups") && now - lastReactAt >= perReactionMs) {
       lastReactAt = now;
       try { await postMutate({ action: "react", params: { kind, who: kind === "love" ? author : "" } }); fired.push(kind); log(`  ✦ react:${kind} ← ${author}`); } catch {}
     }

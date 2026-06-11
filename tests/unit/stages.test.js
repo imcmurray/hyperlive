@@ -102,6 +102,16 @@ test("builtins can't be removed", async () => {
   assert.equal((await removeStage("scene")).ok, false);
 });
 
+test("a stage stores a full feature set; featuresOf defaults builtins to all-on", async () => {
+  const { featuresOf } = await import("../../packages/ingest/src/stages.js");
+  const add = await addStage({ kind: "youtube", source: "dQw4w9WgXcQ", features: { effects: false, popups: false } });
+  assert.equal(add.stage.features.effects, false);
+  assert.equal(add.stage.features.popups, false);
+  assert.equal(add.stage.features.votes, true); // unspecified → on
+  assert.equal(featuresOf(getStage("scene")).votes, true); // builtin → all on
+  await removeStage(add.stage.id);
+});
+
 test("updateStage edits a custom stage in place, keeping its id; rejects unknown/builtin", async () => {
   const { updateStage } = await import("../../packages/ingest/src/stages.js");
   const add = await addStage({ kind: "youtube", source: "dQw4w9WgXcQ", label: "before" });

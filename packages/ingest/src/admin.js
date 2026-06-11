@@ -20,7 +20,8 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { ban, unban, mute, unmute, listBans, listMutes, isBanned, isMuted } from "./bans.js";
 import { listAutomations, setAutomation, addCustom, updateCustom, buildPreviewDirectives } from "./automations.js";
-import { listStages, getStage, addStage, updateStage, removeStage, setActive, buildApplyDirectives, setTitleDefault } from "./stages.js";
+import { listStages, getStage, addStage, updateStage, removeStage, setActive, buildApplyDirectives, setTitleDefault, featuresOf } from "./stages.js";
+import { setActiveFeatures, activeFeatures } from "./features.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DASH_HTML = path.resolve(__dirname, "../../dashboard/index.html");
@@ -190,6 +191,7 @@ export function startAdmin({ log = console.log } = {}) {
           vitals: vitalsProvider(),
           scAwait: [...scAwait.values()],
           stage: activeStage ? { id: activeStage.id, label: activeStage.label, kind: activeStage.kind } : null,
+          features: activeFeatures(),
         });
       }
 
@@ -365,7 +367,7 @@ export function startAdmin({ log = console.log } = {}) {
       // add / edit / remove a custom stage
       if (route === "POST /admin/stages/custom") {
         const b = await readJson(req);
-        const def = { label: b.label, kind: b.kind, source: b.source, url: b.url, muted: b.muted, theme: b.theme, titles: b.titles };
+        const def = { label: b.label, kind: b.kind, source: b.source, url: b.url, muted: b.muted, theme: b.theme, titles: b.titles, features: b.features };
         let out, verb;
         if (b.remove) { out = await removeStage(String(b.id || "")); verb = "removed"; }
         else if (b.id) { out = await updateStage(String(b.id), def); verb = "edited"; }
@@ -389,7 +391,9 @@ export function startAdmin({ log = console.log } = {}) {
           if (r.ok === false) return json(res, 502, { ok: false, error: r.error || "stage target rejected" });
           fired.push(d.action);
         }
-        if (b.preview !== true) await setActive(stage.id);
+        // a LIVE switch also re-shapes the interaction layer to this stage's
+        // features (votes/superchats/effects/welcome/popups); a preview doesn't
+        if (b.preview !== true) { await setActive(stage.id); setActiveFeatures(featuresOf(stage)); }
         publishFeed({ stage: "stage_source", comment: { author: "operator", text: `${b.preview ? "preview" : "→ STAGE"}: ${stage.label}` } });
         return json(res, 200, { ok: true, applied: stage.id, fired: fired.join("+"), offair: b.preview === true });
       }

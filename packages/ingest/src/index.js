@@ -16,7 +16,8 @@ import { createMusic, parseSunoShare, isLikeCommand, hasHeart } from "./music.js
 import { authorCard, parseCardCommand } from "./card-author.js";
 import { isBanned, isMuted, loadBans } from "./bans.js";
 import { automation, loadAutomations, setAutomationPoster, emitAutomation, superchatDirective } from "./automations.js";
-import { loadStages } from "./stages.js";
+import { loadStages, listStages, getStage, featuresOf } from "./stages.js";
+import { getFeature, setActiveFeatures } from "./features.js";
 import { startAdmin, publishFeed, enqueuePending, previewMarkup, setVitalsProvider, setReplayHandler } from "./admin.js";
 import { unitsSpent } from "./quota.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
@@ -116,7 +117,7 @@ async function handle(comment) {
   if (comment.superchat) {
     const auto = automation("superchat");
     const tier = superchatTier(comment.superchat);
-    if (auto.enabled) {
+    if (auto.enabled && getFeature("superchats")) {
       scRecognized = true;
       const directive = superchatDirective(auto.style, { who: comment.author, text: comment.text, amount: comment.superchat.amount || "", tier });
       if (directive.action === "superchatCard" || directive.action === "addShoutout") directive.params.avatar = comment.avatar || "";
@@ -203,7 +204,7 @@ async function handle(comment) {
 
   // Vote ballots ("!theme:x") are CONSUMED here — they drive a vote round and
   // are never shown as a message or sent to the director.
-  if (config.votes) {
+  if (config.votes && getFeature("votes")) {
     const voted = votes.handle(comment);
     if (voted) {
       console.log(`  ⚑ VOTE  ${comment.author} → ${voted}`);
@@ -253,6 +254,8 @@ async function main() {
   await loadAutomations();
   setAutomationPoster(postMutate); // custom automations + previews fire through the normal bus
   await loadStages();
+  // apply the persisted active stage's interactive features (votes/effects/…)
+  setActiveFeatures(featuresOf(getStage(listStages().active)));
   const banCount = await loadBans();
   if (banCount) console.log(`[ingest] ban list: ${banCount} entr${banCount === 1 ? "y" : "ies"}`);
   setVitalsProvider(() => ({

@@ -12,6 +12,7 @@
 
 import { readFile } from "node:fs/promises";
 import { saveJson } from "./state.js";
+import { FEATURE_KEYS, FEATURE_LABELS, normalizeFeatures } from "./features.js";
 
 const FILE = process.env.STAGES_FILE || "./state/stages.json";
 
@@ -42,7 +43,7 @@ const ytId = (s) => {
 const httpUrl = (u) => { try { const x = new URL(String(u)); return (x.protocol === "https:" || x.protocol === "http:") ? x.href : null; } catch { return null; } };
 
 // validate + normalize an incoming stage definition (operator input)
-function normalize({ label, kind, source, url, id, muted, theme, titles } = {}) {
+function normalize({ label, kind, source, url, id, muted, theme, titles, features } = {}) {
   kind = String(kind || "").toLowerCase();
   if (!STAGE_KINDS.includes(kind)) return { error: `kind must be ${STAGE_KINDS.join("|")}` };
   const out = { kind, label: String(label || "").slice(0, 60) };
@@ -50,6 +51,8 @@ function normalize({ label, kind, source, url, id, muted, theme, titles } = {}) 
   // titles: "" / "default" → defer to the global default; else one of TITLE_ANIMS
   const t = String(titles || "").toLowerCase();
   if (t && t !== "default") out.titleAnim = TITLE_ANIMS.includes(t) ? t : "";
+  // interactive features this stage runs (votes/superchats/effects/welcome/popups)
+  out.features = normalizeFeatures(features);
   if (kind === "youtube") {
     // NB: videoId (the 11-char YouTube id), NOT id — id is the stage's own
     // unique key, assigned by addStage; conflating them clobbers one.
@@ -97,14 +100,19 @@ async function persist() { try { await saveJson(FILE, state); } catch { /* non-f
 export function listStages() {
   ensure();
   return {
-    builtins: BUILTINS.map((b) => ({ ...b, builtin: true })),
-    custom: state.custom.map((c) => ({ ...c, builtin: false })),
+    builtins: BUILTINS.map((b) => ({ ...b, builtin: true, features: featuresOf(b) })),
+    custom: state.custom.map((c) => ({ ...c, builtin: false, features: featuresOf(c) })),
     active: state.active,
     kinds: STAGE_KINDS,
     titleAnims: TITLE_ANIMS,
     titleDefault: state.titleDefault,
+    featureKeys: FEATURE_KEYS,
+    featureLabels: FEATURE_LABELS,
   };
 }
+
+// a stage's interactive feature set (builtins default to everything on)
+export function featuresOf(stage) { return normalizeFeatures(stage && stage.features); }
 
 export function getStage(id) {
   ensure();
