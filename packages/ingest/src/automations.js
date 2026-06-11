@@ -14,6 +14,7 @@
 
 import { readFile } from "node:fs/promises";
 import { saveJson } from "./state.js";
+import { getFeature } from "./features.js";
 
 const FILE = process.env.AUTOMATIONS_FILE || "./state/automations.json";
 
@@ -167,6 +168,7 @@ function substitute(params, data) {
 export function emitAutomation(event, data = {}) {
   ensure();
   if (!poster) return;
+  if (!getFeature("automations")) return; // the active stage can switch custom automations off
   for (const c of state.custom) {
     if (!c.enabled || c.on !== event) continue;
     poster({ action: c.action, params: substitute(c.params, data) })

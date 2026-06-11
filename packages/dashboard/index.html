@@ -962,7 +962,7 @@
 
   // ---- STAGES view: presets for the main video + live switching ----
   let lastStages = [], editStageId = null, stageKind = "all", stageFeatKeys = [], stageFeatLabels = {}, stageActiveId = "scene";
-  const FEAT_SHORT = { votes: "vote", superchats: "super", effects: "fx", welcome: "welcome", popups: "popups" };
+  const FEAT_SHORT = { votes: "vote", superchats: "super", effects: "fx", welcome: "welcome", popups: "popups", automations: "auto" };
   const featPills = (s) => stageFeatKeys.length
     ? `<div class="feats">${stageFeatKeys.map((k) => `<span class="feat ${s.features && s.features[k] ? "on" : ""}">${FEAT_SHORT[k] || k}</span>`).join("")}</div>` : "";
   // theme accent colors (mirror packages/streamer/scene/styles.css) → scene
@@ -1011,7 +1011,7 @@
       <div class="meta">
         <div class="nm ${live ? "live" : ""}">${live ? "▶ " : ""}${esc(s.label)}
           <span class="kbadge">${esc(s.kind)}</span>
-          ${s.titleAnim ? `<span class="kbadge t">titles ${esc(TITLE_LABELS[s.titleAnim] || s.titleAnim)}</span>` : ""}
+          ${s.titleAnim === "hide" ? `<span class="kbadge t">titles off</span>` : s.titleAnim ? `<span class="kbadge t">titles ${esc(TITLE_LABELS[s.titleAnim] || s.titleAnim)}</span>` : ""}
           ${s.headline || s.kicker || s.subhead ? `<span class="kbadge t">custom titles</span>` : ""}
           ${s.ticker && s.ticker.length ? `<span class="kbadge t">ticker ${s.ticker.length}</span>` : ""}
           ${s.customized ? `<span class="kbadge" style="color:#7a9">edited</span>` : ""}
@@ -1064,7 +1064,8 @@
         </div>
         <div class="line">
           <input id="sa-theme" placeholder="theme (optional)" style="width:130px">
-          <label>titles <select id="sa-titles">${titleOpts(r.titleAnims, "", true)}</select></label>
+          <label><input type="checkbox" id="sa-show-titles" checked style="width:auto"> show titles</label>
+          <label>anim <select id="sa-titles">${titleOpts(r.titleAnims.filter((a) => a !== "hide"), "", true)}</select></label>
           <label><input type="checkbox" id="sa-muted" style="width:auto"> mute audio</label>
         </div>
         <div class="featbox" id="sa-feats">
@@ -1102,10 +1103,14 @@
     $("#sa-titles").value = s.titleAnim || "default";
     $("#sa-muted").checked = !!s.muted;
     setFeatBoxes(s.features);
+    const titlesOff = s.titleAnim === "hide";
+    $("#sa-show-titles").checked = !titlesOff;
+    $("#sa-titles").value = (s.titleAnim && s.titleAnim !== "hide") ? s.titleAnim : "default";
     $("#sa-kicker").value = s.kicker || "";
     $("#sa-headline").value = s.headline || "";
     $("#sa-subhead").value = s.subhead || "";
     $("#sa-ticker").value = (s.ticker || []).join("\n");
+    syncAddForm();
     $("#sa-heading").textContent = `EDIT STAGE — ${s.label}`;
     $("#sa-add").textContent = "✓ SAVE";
     $("#sa-cancel").style.display = "";
@@ -1118,6 +1123,9 @@
     const src = $("#sa-source");
     if (src) { src.style.display = isScene ? "none" : ""; src.parentElement.style.display = isScene ? "none" : ""; }
     const mute = $("#sa-muted"); if (mute) mute.parentElement.style.display = (kindSel.value === "youtube" || kindSel.value === "video") ? "" : "none";
+    // the animation picker only matters when titles are shown
+    const showT = $("#sa-show-titles"), anim = $("#sa-titles");
+    if (showT && anim) { anim.disabled = !showT.checked; anim.parentElement.style.opacity = showT.checked ? "1" : ".4"; }
   }
   $("#stages-list").addEventListener("click", async (ev) => {
     const kb = ev.target.closest("[data-skind]");
@@ -1160,7 +1168,9 @@
       const kind = $("#sa-kind").value;
       const body = {
         label: $("#sa-label").value.trim(), kind, source: $("#sa-source").value.trim(),
-        theme: $("#sa-theme").value.trim(), titles: $("#sa-titles").value, muted: $("#sa-muted").checked,
+        theme: $("#sa-theme").value.trim(),
+        titles: $("#sa-show-titles").checked ? $("#sa-titles").value : "hide", // unchecked → titles off
+        muted: $("#sa-muted").checked,
         features: readFeatBoxes(),
         kicker: $("#sa-kicker").value.trim(), headline: $("#sa-headline").value.trim(),
         subhead: $("#sa-subhead").value.trim(), ticker: $("#sa-ticker").value,
@@ -1177,7 +1187,7 @@
     }
   });
   $("#stages-list").addEventListener("change", async (ev) => {
-    if (ev.target.id === "sa-kind") return syncAddForm();
+    if (ev.target.id === "sa-kind" || ev.target.id === "sa-show-titles") return syncAddForm();
     if (ev.target.id === "title-default") {
       const r = await api("/admin/stages/titles", { default: ev.target.value });
       toast(r.ok ? `title default → ${r.titleDefault}` : `failed: ${r.error || "?"}`);
