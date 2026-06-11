@@ -175,7 +175,7 @@ function buildControlApp() {
       renderMode,
       gpuRenderer,
       dryRun: config.dryRun,
-      ingest: config.dryRun ? null : `${config.rtmpUrl}/<key>`,
+      ingest: config.dryRun ? null : config.outputFile || `${config.rtmpUrl}/<key>`,
     });
   });
 

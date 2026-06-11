@@ -394,7 +394,7 @@ export function startAdmin({ log = console.log } = {}) {
     }
   });
 
-  server.listen(config.adminPort, "127.0.0.1", () => {
+  server.listen(config.adminPort, config.adminBind, () => {
     log(`[admin] dashboard → http://127.0.0.1:${config.adminPort}/  (loopback only — tunnel in for remote mods)`);
   });
   return server;

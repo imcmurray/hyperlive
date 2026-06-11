@@ -1,0 +1,56 @@
+# Zero-credential demo — the whole HyperLive loop with NOTHING external:
+# a synthetic crowd (welcomes, theme votes, song requests, Super Chats, spam
+# that gets blocked) drives the live scene, and you moderate it from the
+# dashboard. No YouTube key, no OAuth, no API keys, no GPU assumptions.
+#
+#   docker compose -f docker-compose.demo.yml up --build
+#   → open http://127.0.0.1:8090  (mod console; click ▶ GO ON AIR to start)
+#
+# This is a standalone file, not an override: the base docker-compose.yml
+# passes through an Intel iGPU device, which compose merging can't remove —
+# this file makes no hardware assumptions (CPU rendering + CPU encode).
+services:
+  streamer:
+    build:
+      context: ./packages/streamer
+    init: true
+    shm_size: "1gb"
+    environment:
+      # full encode pipeline runs (so vitals + the monitor are real), but the
+      # output goes nowhere — swap for /tmp/demo.flv if you want to inspect it
+      DRY_RUN: "false"
+      OUTPUT_FILE: /dev/null
+      CAPTURE: screencast
+      HW_ENCODE: "false"
+      AUDIO_MODE: silent
+      # boot on the "starting shortly" standby screen; the dashboard's
+      # ▶ GO ON AIR button reveals the show (same flow as a real broadcast)
+      STANDBY_ON_BOOT: "true"
+    ports:
+      # loopback only — the control API has no auth by design
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 5s
+      timeout: 4s
+      retries: 24
+      start_period: 15s
+    restart: unless-stopped
+    stop_grace_period: 10s
+
+  ingest:
+    build:
+      # context is packages/ so the image can include the dashboard package too
+      context: ./packages
+      dockerfile: ingest/Dockerfile
+    init: true
+    environment:
+      SOURCE: live                      # endless lifelike simulated crowd
+      MUTATE_URL: http://streamer:8080/mutate
+      ADMIN_BIND: 0.0.0.0               # container-internal; host side is published loopback-only below
+    ports:
+      - "127.0.0.1:8090:8090"
+    depends_on:
+      streamer:
+        condition: service_healthy
+    restart: unless-stopped

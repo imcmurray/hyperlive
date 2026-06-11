@@ -54,6 +54,10 @@ export const config = {
   // --- Phase 4: moderator dashboard (loopback admin server in this process) ---
   dashboard: (process.env.DASHBOARD || "on").toLowerCase() !== "off",
   adminPort: num(process.env.ADMIN_PORT, 8090),
+  // bind address for the admin server. 127.0.0.1 (the default) on the host;
+  // the demo container sets 0.0.0.0 because compose publishes the port as
+  // 127.0.0.1:8090 on the host side — net exposure is still loopback-only.
+  adminBind: process.env.ADMIN_BIND || "127.0.0.1",
   // hold viewer cards for human approval instead of airing on vision-pass
   holdCards: (process.env.HOLD_CARDS || "off").toLowerCase() === "on",
   // streamer control-plane base (the /mutate url minus the path)

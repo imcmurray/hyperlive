@@ -6,8 +6,12 @@
   "workspaces": [
     "packages/*"
   ],
+  "type": "module",
   "scripts": {
     "up": "docker compose up --build",
-    "down": "docker compose down"
+    "down": "docker compose down",
+    "demo": "docker compose -f docker-compose.demo.yml up --build",
+    "test": "node --test \"tests/unit/*.test.js\"",
+    "test:adversarial": "tests/adversarial/run.sh"
   }
 }

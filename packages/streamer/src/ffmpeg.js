@@ -41,6 +41,9 @@ function x264Video(fps, bitrate) {
 }
 
 function sink() {
+  // /dev/null has no extension for ffmpeg to infer a muxer from — use the null
+  // muxer (full encode, output discarded; the demo runs this indefinitely)
+  if (config.outputFile === "/dev/null") return ["-f", "null", "/dev/null"];
   return config.outputFile ? ["-y", config.outputFile] : ["-f", "flv", ingestUrl()];
 }
 

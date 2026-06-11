@@ -178,6 +178,80 @@ and *if* a third direction gets real, that's the signal to graduate to the
 
 ---
 
+## 6. The stage is a *video source*, not necessarily our scene
+
+Everything above (§2–§4) treats the broadcast as **our browser scene, captured
+to RTMP**. That's one stage type. The bigger platform move is to recognize that
+the **interaction stack — ingest → moderation → director → dashboard,
+automations, superchats, bans — is completely independent of *what's on the
+main video*.** Someone should be able to stream their **game session, a live
+event camera, a desktop, another app** and still get the moderated,
+chat-driven HyperLive overlay + the mod console on top of it.
+
+This splits the kernel into two cleanly separable halves:
+
+```
+   ┌──────────── INTERACTION STACK (the HyperLive value) ────────────┐
+   │  ingest → moderation gate → director → {action,params}          │
+   │  dashboard · automations · superchats · bans · votes · mood      │
+   └───────────────────────────────┬─────────────────────────────────┘
+                                    ▼  drives only the OVERLAY
+   ┌──────────────────────── COMPOSITOR (the stage) ─────────────────┐
+   │   main source            +     HyperLive scene (transparent)    │
+   │   ├─ our browser scene         lower-thirds · alerts · cards ·   │
+   │   ├─ game capture              superchat recognition · ticker    │
+   │   ├─ event camera (RTMP/v4l2)  vote bars · now-playing           │
+   │   └─ desktop / another app                                       │
+   └───────────────────────────────┬─────────────────────────────────┘
+                                    ▼
+                          ffmpeg ──▶ RTMP / YouTube
+```
+
+**What this is, concretely:** today the scene IS the full frame. Make it an
+**alpha overlay layer** instead, and let the streamer composite `[main source]`
+under `[scene overlay]`. The scene already renders over a transparent root in a
+headless Chromium — the change is (a) a compositor step in the streamer with N
+inputs instead of one, and (b) a scene "overlay mode" that drops its own
+background so the main source shows through.
+
+**What stays identical:** the entire interaction stack. Chat still becomes
+vetted directives; the dashboard still bans/holds/previews; superchats still
+fire recognition cards; automations still bind events to overlay actions. None
+of it cares whether the pixels behind the overlay are a gradient, a game, or a
+camera.
+
+**Why this is HyperLive's lane, not OBS's.** OBS already composites a "browser
+source" over a game capture — but the overlay is static and the operator drives
+it by hand. HyperLive's overlay is **moderated, chat-driven, and run from a
+purpose-built mod console**: the value isn't the compositing, it's the safe
+interaction engine feeding it. The compositor is the commodity; the gate +
+director + dashboard are the product.
+
+**The safety story gets *easier*, not harder.** Viewer input still only ever
+touches the overlay scene through the same allowlist + sandbox (§7,
+`SECURITY.md`) — and now the blast radius is smaller: the worst a malicious
+directive can do is misbehave inside a transparent overlay, never the operator's
+game or camera feed, which the interaction stack can't address at all.
+
+**Build order when this gets real:**
+1. **Scene overlay mode** — a flag that renders the scene over transparency
+   (no bg fill, no standby fill); verify alpha survives the screencast/encode
+   path (the GPU path already emits JPEG — overlay needs an alpha-capable
+   capture, e.g. a PNG/`webm`-alpha screencast or a CSS-keyed color).
+2. **Compositor inputs** — generalize the streamer's single capture into a
+   small source list: `main` (game/camera/desktop/scene) + `overlay` (scene),
+   composited with `ffmpeg -filter_complex overlay`. Main sources arrive as
+   their own RTMP ingest, a v4l2 device, or an x11grab region.
+3. **Source as a pack** — "game overlay", "event camera", "just-chatting" each
+   become packs in the §2 sense: a source adapter + the overlay widgets that
+   suit it, reusing the whole interaction stack unchanged.
+
+This is the cleanest answer to *"how does someone stream **their** content on
+HyperLive?"* — they bring the stage; HyperLive brings the moderated crowd layer
+and the console to run it.
+
+---
+
 ## 7. Comment-alters-the-stage: the three-tier mutation ladder
 
 The next platform experiment: let a viewer comment change the stage itself, not

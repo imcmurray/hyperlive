@@ -12,6 +12,23 @@ HTML/CSS/animation authoring model, but streamed live instead of rendered offlin
 
 <sub>The live scene: kicker / gradient headline / subhead, the bottom pop-up cards with countdown dots, and (top) the on-screen warning shown when it auto-falls back to CPU rendering. Click to watch the demo.</sub>
 
+## Try it in 3 minutes — no accounts, no keys
+
+```bash
+git clone https://github.com/imcmurray/hyperlive && cd hyperlive
+docker compose -f docker-compose.demo.yml up --build
+```
+
+Then open **http://127.0.0.1:8090** and click **▶ GO ON AIR**.
+
+A synthetic crowd (welcomes, theme votes, song requests, Super Chats — and
+spam that gets blocked) drives the live scene while you moderate it from the
+real dashboard: watch the stage react in the monitor (click it to pop out a
+live player), ban the flooder, ack a superchat in the callout tray, preview an
+automation off-air. Nothing leaves your machine — the full encode pipeline
+runs but writes to `/dev/null` instead of RTMP, the "viewers" are a simulator,
+and no GPU is assumed (pure CPU rendering). When you're done: `Ctrl-C`.
+
 ## The idea
 
 - A long-lived **HTML/CSS/GSAP scene** renders in a real (headless) browser.
@@ -22,7 +39,9 @@ HTML/CSS/animation authoring model, but streamed live instead of rendered offlin
 - **Super Chats** escalate the effect by amount tier — small = shoutout,
   medium = scene change, large = a pre-rendered HyperFrames "takeover" clip.
 - A **moderation gate** sits in front of everything; viewer input can only ever
-  become *arguments* to pre-vetted actions, never executable markup.
+  become *arguments* to pre-vetted actions, never executable markup. This is
+  the project's one hard invariant, and it's enforced by a CI gate — see
+  **[Safety & the adversarial test suite](#safety--the-adversarial-test-suite)**.
 
 ## Why this architecture (the key bet)
 
@@ -117,6 +136,28 @@ packages/
 docs/phase0.md   transport spike walkthrough
 scripts/         mutate.sh / mutate-file.sh helpers
 ```
+
+## Safety & the adversarial test suite
+
+The whole bet of this repo is the **safe-template invariant**: untrusted
+internet input can mutate a *live, broadcasting* DOM and **never** escape into
+script execution. That's not asserted on faith — it's a regression gate.
+
+```bash
+npm test                  # validation logic: moderation gate, bans, automations
+npm run test:adversarial  # fires an injection corpus at the REAL scene in a browser
+```
+
+The adversarial probe (`tests/adversarial/scene-probe.mjs`) loads the actual
+scene in headless Chromium and throws `<img onerror>`, `<svg onload>`, inline
+`<script>`, `javascript:` URLs, attribute break-outs, and oversized payloads at
+every untrusted door — chat→`setText`, viewer cards, takeovers, automation
+params, the `/mutate` endpoint. A global tripwire catches any parent-document
+execution; it asserts the sandboxes hold, the clamps hold, and the gated
+actions stay gated. Both run in CI on every push (`.github/workflows/ci.yml`).
+
+Full threat model, trust boundaries, and the loopback/OAuth posture:
+**[`SECURITY.md`](SECURITY.md)**.
 
 ## Credits & acknowledgements
 
