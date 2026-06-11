@@ -28,6 +28,12 @@ const BUILTINS = [
   { id: "scene", label: "HyperLive Scene", kind: "scene", desc: "the native generative scene (no external source)" },
   { id: "scene-ocean", label: "Scene · Ocean", kind: "scene", theme: "ocean", desc: "native scene, ocean theme" },
   { id: "scene-synthwave", label: "Scene · Synthwave", kind: "scene", theme: "synthwave", desc: "native scene, synthwave theme" },
+  // video examples — public test streams that play with sound (AUDIO_MODE=source).
+  // Two HLS (via hls.js) + one direct MP4, so the video path is demonstrable out
+  // of the box. Stable, widely-used reference URLs.
+  { id: "ex-bbb-hls", label: "Big Buck Bunny · HLS", kind: "video", url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", desc: "HLS test stream (hls.js) — plays with audio" },
+  { id: "ex-bipbop", label: "Apple BipBop · HLS", kind: "video", url: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8", desc: "Apple's reference HLS stream" },
+  { id: "ex-bbb-mp4", label: "Big Buck Bunny · MP4", kind: "video", url: "https://www.w3schools.com/html/mov_bbb.mp4", desc: "direct progressive MP4 — plays with audio" },
 ];
 
 let state = null; // { custom: [stage], active: id, titleDefault }
