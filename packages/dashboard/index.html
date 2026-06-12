@@ -363,7 +363,7 @@
   #none-pending { color: var(--dim); text-align: center; padding: 26px 0 16px; font-size: 11px; letter-spacing: .14em; }
   #compose { border-top: 1px solid var(--line); padding: 10px; flex: none; }
   #compose textarea {
-    width: 100%; height: 74px; background: #0c0f0c; border: 1px solid var(--line);
+    width: 100%; height: 132px; background: #0c0f0c; border: 1px solid var(--line);
     color: var(--txt); font: 11px var(--mono); padding: 7px; border-radius: 3px; resize: vertical;
   }
   #compose .crow { display: flex; gap: 6px; margin-top: 6px; }
@@ -384,19 +384,21 @@
   #lib-bar { display: flex; gap: 6px; align-items: center; padding: 8px 10px 4px; }
   #lib-bar button { font: 10px var(--mono); padding: 3px 8px; border: 1px solid var(--line); background: #0c0f0c; color: var(--dim); border-radius: 3px; cursor: pointer; }
   #lib-bar button.active { color: var(--amber); border-color: #4a3c14; background: #161204; }
-  .asset { margin: 8px 10px; border: 1px solid #232a23; background: #0d100d; border-radius: 4px; overflow: hidden; }
-  .asset img { display: block; width: 100%; background: #000; }
-  .asset .am { padding: 7px 9px; }
-  .asset .al { color: #cfe8cf; font-size: 12px; display: flex; align-items: center; gap: 6px; }
-  .asset .as { color: var(--dim); font-size: 10px; margin-top: 2px; }
+  /* compact: small thumbnail beside the meta, so more fit on the page */
+  .asset { display: flex; gap: 8px; margin: 6px 8px; padding: 6px; border: 1px solid #232a23; background: #0d100d; border-radius: 4px; }
+  .asset img { width: 94px; height: 60px; object-fit: cover; background: #000; border-radius: 3px; flex: 0 0 auto; }
+  .asset .am { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .asset .al { display: flex; align-items: center; gap: 5px; }
+  .asset .alt { flex: 1; min-width: 0; color: #cfe8cf; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .asset .as { color: var(--dim); font-size: 9px; margin-top: 3px; display: flex; align-items: center; gap: 5px; }
   .asset .stars { display: inline-flex; gap: 2px; cursor: pointer; }
-  .asset .stars b { color: #3a4a3a; font-size: 15px; line-height: 1; font-weight: 400; }
+  .asset .stars b { color: #3a4a3a; font-size: 13px; line-height: 1; font-weight: 400; }
   .asset .stars b.on { color: var(--amber); }
-  .asset .arow { display: flex; border-top: 1px solid #1a201a; }
-  .asset .arow button { flex: 1; padding: 7px 0; border: 0; cursor: pointer; font: 700 10px var(--mono); letter-spacing: .1em; background: transparent; color: var(--dim); }
-  .asset .arow button.reuse { color: var(--green); } .asset .arow button.reuse:hover { background: #0f2a18; }
-  .asset .arow button.tweak:hover { background: #16201f; color: var(--cyan); }
-  .asset .arow button.adel { color: #a06060; } .asset .arow button.adel:hover { background: #2a1010; color: var(--red); }
+  .asset .arow { display: flex; gap: 4px; margin-top: auto; padding-top: 6px; }
+  .asset .arow button { flex: 1; padding: 4px 0; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; font: 700 9px var(--mono); letter-spacing: .05em; background: #0c0f0c; color: var(--dim); }
+  .asset .arow button.reuse { color: var(--green); border-color: #234c32; } .asset .arow button.reuse:hover { background: #0f2a18; }
+  .asset .arow button.tweak:hover { color: var(--cyan); border-color: #234c4c; }
+  .asset .arow button.adel { color: #a06060; } .asset .arow button.adel:hover { background: #2a1010; color: var(--red); border-color: #532222; }
   #toast {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
     background: #162016; border: 1px solid var(--line); color: var(--txt);
@@ -906,15 +908,15 @@
     if (libFav === "fav") assets = assets.filter((a) => a.stars > 0);
     $("#lib-list").innerHTML = assets.length ? assets.map((a) => `
       <div class="asset" data-id="${esc(a.id)}">
-        ${a.screenshot ? `<img src="data:image/png;base64,${a.screenshot}" alt="">` : ""}
+        ${a.screenshot ? `<img src="data:image/png;base64,${a.screenshot}" alt="">` : `<div class="kbadge" style="width:94px;height:60px;display:flex;align-items:center;justify-content:center;flex:0 0 auto">${esc(a.kind)}</div>`}
         <div class="am">
-          <div class="al">${esc(a.label || "card")} <span class="kbadge">${esc(a.kind)}</span></div>
-          <div class="as">${esc(a.who || "")} · used ${a.usedCount || 1}× · ${starRow(a)}</div>
-        </div>
-        <div class="arow">
-          <button class="reuse" data-reuse="${esc(a.id)}" title="re-air this card now">REUSE</button>
-          <button class="tweak" data-tweak="${esc(a.id)}" title="load into compose to edit">TWEAK</button>
-          <button class="adel" data-adel="${esc(a.id)}" title="remove from library">DELETE</button>
+          <div class="al"><span class="alt">${esc(a.label || "card")}</span><span class="kbadge">${esc(a.kind)}</span></div>
+          <div class="as">${esc(a.who || "")} · ${a.usedCount || 1}× · ${starRow(a)}</div>
+          <div class="arow">
+            <button class="reuse" data-reuse="${esc(a.id)}" title="re-air this card now">reuse</button>
+            <button class="tweak" data-tweak="${esc(a.id)}" title="load into compose to edit">tweak</button>
+            <button class="adel" data-adel="${esc(a.id)}" title="remove from library">del</button>
+          </div>
         </div>
       </div>`).join("") : `<div id="none-pending">— ${libFav === "fav" ? "NO FAVORITES" : "NO SAVED CARDS"} —</div>`;
   }
@@ -939,9 +941,11 @@
     if (tweak) {
       const a = await api(`/admin/asset?id=${encodeURIComponent(tweak.dataset.tweak)}`).catch(() => null);
       if (!a?.ok) return toast("load failed");
+      // load into the compose editor (it's at the bottom of this panel, visible
+      // on both tabs) — stay on the library, just scroll it into view + focus
       $("#c-html").value = a.html; $("#c-kind").value = a.kind;
-      setRTab("review"); $("#c-html").scrollIntoView({ block: "center" }); $("#c-html").focus();
-      toast("loaded into compose — tweak + PREVIEW → QUEUE");
+      $("#c-html").scrollIntoView({ block: "center", behavior: "smooth" }); $("#c-html").focus();
+      toast("loaded into compose below — tweak + PREVIEW → QUEUE");
       return;
     }
     const del = ev.target.closest("[data-adel]");
