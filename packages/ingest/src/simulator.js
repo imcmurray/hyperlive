@@ -21,6 +21,9 @@ const SCRIPT = [
   { author: "@flooder", text: "spam5" },
   { author: "@frank", text: "switch to sunrise theme please" },
   { author: "@grace", text: "shoutout to the late night crew", superchat: { tier: "medium" } },
+  // Tier 2: "!card …" → Claude authors a card → vision gate → on-stage slot.
+  // No-op when there's no ANTHROPIC_API_KEY (cards off → flows as normal chat).
+  { author: "@dana", text: "!card a glowing neon welcome sign that says HELLO CHAT" },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

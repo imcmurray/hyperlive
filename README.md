@@ -81,9 +81,30 @@ for the full rationale.
 |-------|------|-------|
 | **0** | Transport spike: live scene → x11grab → ffmpeg → YouTube RTMP, mutable while live | ✅ built + verified live (`packages/streamer`) |
 | **1** | Comments → moderation gate → rule-based director → `/mutate` | ✅ built + verified live via simulator (`packages/ingest`); real YouTube polling ready, needs OAuth — see [`docs/phase1.md`](docs/phase1.md) |
-| **2** | Swap the director's `parseIntent()` for a **Claude** call (same directive shape, re-validated) | ✅ built (`packages/ingest`, `DIRECTOR=llm`); needs `ANTHROPIC_API_KEY` to run — see [`docs/phase2.md`](docs/phase2.md) |
-| 3 | Super Chat tiers → escalating effects + pre-rendered takeover clips | partial (tiers→shoutouts done; takeover clips pending) |
+| **2** | Swap the director's `parseIntent()` for a **Claude** call (same directive shape, re-validated) | ✅ built + verified (`DIRECTOR=llm`) — see [`docs/phase2.md`](docs/phase2.md) |
+| 3 | Super Chat tiers → escalating effects + **Tier 2 viewer cards** (`!card` → Claude authors HTML → vision gate → on-stage) | ✅ Super Chat tiers + Tier 2 cards verified; pre-rendered HyperFrames takeover clips still pending |
 | 4 | Hardening: reconnect, watchdog, mod console (feed · bans · hold queue · kill switch) | ✅ done (1080p60 still pending) |
+
+The full **AI layer is verified live** (local broadcast test) — see [Enabling the AI layer](#enabling-the-ai-layer).
+
+## Enabling the AI layer
+
+Everything Claude-powered is **off by default** and gated on `ANTHROPIC_API_KEY`
+(in `.env`, gitignored). Each piece is an independent flag — turn on what you
+want. Without a key the system runs entirely on the deterministic rules path.
+
+| Flag (env) | What it does | Model |
+|---|---|---|
+| `DIRECTOR=llm` | Claude composes the scene directive from each chat message (vs `parseIntent` rules); output re-validated against the same allowlist | Haiku (cheap) |
+| `MODERATION_LLM=anthropic` | a safety classifier runs **after** the regex/rate layer — catches subtle harassment/scams plain rules miss (verified: blocks "nobody wants you here, just disappear" and a wallet-doubling scam) | Haiku |
+| `MOOD_LLM=on` | the Mood Conductor's "vibe" descriptors are Claude-authored (more evocative than the rules pool) | Haiku |
+| `CARDS=on` *(auto-on with a key)* | **Tier 2**: `!card <desc>` → Claude authors a 360×250 HTML/CSS card → off-air render → **vision safety gate** → sandboxed on-stage slot. Set `HOLD_CARDS=on` to park cards in the mod queue for approval instead of airing on a vision pass | Haiku authoring + Haiku vision |
+
+The vision gate (`packages/streamer/src/vision.js`) also needs the key **in the
+streamer** (it renders + judges the screenshot there) — pass `ANTHROPIC_API_KEY`
+to both processes. Every path **fails safe**: a missing key / API error / weird
+output falls back to rules (director, mood) or rejects (moderation, vision).
+Bump `ANTHROPIC_MODEL` to a stronger model for higher-quality cards/directives.
 
 ## Mod console
 
