@@ -848,6 +848,9 @@
         </div>
         <div class="row-btns"><button class="approve">▶ AIR IT</button><button class="reject">✕ REJECT</button></div>
       </div>`).join("") : `<div id="none-pending">— QUEUE EMPTY —</div>`;
+      // baseline each editor with the html it currently shows (so an unsaved
+      // edit can be detected + auto-applied when toggling back to view)
+      pend.forEach((p) => { const ta = document.querySelector(`#pending .pending-item[data-id="${p.id}"] .pe-html`); if (ta) ta._rendered = p.html; });
     }
 
     // right-panel tab badges + live-refresh the library when it's open
@@ -915,6 +918,18 @@
   // otherwise hold the load event hostage and spin the tab forever)
   if (location.hash === "#live") window.addEventListener("load", () => setTimeout(openLive, 50));
 
+  // re-render a card's edited markup off-air and update its thumbnail in place.
+  // ._rendered tracks what's currently shown, so we only re-render real edits.
+  async function reRenderCard(item) {
+    const id = item.dataset.id, ta = item.querySelector(".pe-html");
+    const r = await api(`/admin/pending/${id}/update`, { html: ta.value }).catch(() => ({ ok: false }));
+    if (!r.ok) { toast(`preview failed: ${r.error || "?"}`); return false; }
+    let img = item.querySelector(".pe-prev img");
+    if (!img) { img = document.createElement("img"); item.querySelector(".pe-prev").prepend(img); }
+    if (r.screenshot) img.src = "data:image/png;base64," + r.screenshot;
+    ta._rendered = ta.value;
+    return true;
+  }
   $("#pending").addEventListener("click", async (ev) => {
     const item = ev.target.closest(".pending-item");
     if (!item) return;
@@ -924,24 +939,26 @@
     if (tog) {
       const toEdit = ev.target.classList.contains("se") ? true
         : ev.target.classList.contains("sv") ? false : !item.classList.contains("editing");
+      const ta = item.querySelector(".pe-html");
+      // switching to VIEW with unsaved edits → apply them first so view is current
+      if (!toEdit && ta && ta.value !== ta._rendered) {
+        tog.querySelector(".se").textContent = "applying…";
+        await reRenderCard(item);
+        tog.querySelector(".se").textContent = "edit";
+      }
       item.classList.toggle("editing", toEdit);
       tog.querySelector(".sv").classList.toggle("active", !toEdit);
       tog.querySelector(".se").classList.toggle("active", toEdit);
-      if (toEdit) { pendEdit.add(id); item.querySelector(".pe-html").focus(); } else pendEdit.delete(id);
+      if (toEdit) { pendEdit.add(id); ta.focus(); } else pendEdit.delete(id);
       return;
     }
-    // re-render the edited markup off-air and update this card's thumbnail
+    // explicit RE-PREVIEW button
     const rp = ev.target.closest(".pe-repreview");
     if (rp) {
-      const html = item.querySelector(".pe-html").value;
       rp.disabled = true; const label = rp.textContent; rp.textContent = "rendering…";
-      const r = await api(`/admin/pending/${id}/update`, { html }).catch(() => ({ ok: false }));
+      const ok = await reRenderCard(item);
       rp.disabled = false; rp.textContent = label;
-      if (!r.ok) return toast(`preview failed: ${r.error || "?"}`);
-      let img = item.querySelector(".pe-prev img");
-      if (!img) { img = document.createElement("img"); item.querySelector(".pe-prev").prepend(img); }
-      if (r.screenshot) img.src = "data:image/png;base64," + r.screenshot;
-      toast("re-rendered — toggle to view, or AIR IT");
+      if (ok) toast("re-rendered — toggle to view, or AIR IT");
       return;
     }
     if (ev.target.closest(".approve")) { pendEdit.delete(id); api(`/admin/pending/${id}`, { action: "approve" }).then((r) => { toast(r.ok ? "ON AIR" : `air failed: ${r.error || "?"}`); refresh(); }); }
