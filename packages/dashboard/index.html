@@ -372,6 +372,31 @@
     font: 11px var(--mono); padding: 5px 7px; border-radius: 3px;
   }
   #compose input { flex: 1; min-width: 0; }
+  /* right-panel tab switch (review queue ⇄ asset library) */
+  #rtabs { display: flex; }
+  #rtabs button {
+    flex: 1; padding: 9px 0; border: 0; border-bottom: 2px solid transparent; cursor: pointer;
+    background: #0c0f0c; color: var(--dim); font: 700 11px var(--mono); letter-spacing: .1em;
+  }
+  #rtabs button.active { color: var(--green); border-bottom-color: var(--green); background: #0e1f15; }
+  #rtabs .pilln { font-size: 9px; opacity: .7; }
+  /* asset library */
+  #lib-bar { display: flex; gap: 6px; align-items: center; padding: 8px 10px 4px; }
+  #lib-bar button { font: 10px var(--mono); padding: 3px 8px; border: 1px solid var(--line); background: #0c0f0c; color: var(--dim); border-radius: 3px; cursor: pointer; }
+  #lib-bar button.active { color: var(--amber); border-color: #4a3c14; background: #161204; }
+  .asset { margin: 8px 10px; border: 1px solid #232a23; background: #0d100d; border-radius: 4px; overflow: hidden; }
+  .asset img { display: block; width: 100%; background: #000; }
+  .asset .am { padding: 7px 9px; }
+  .asset .al { color: #cfe8cf; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .asset .as { color: var(--dim); font-size: 10px; margin-top: 2px; }
+  .asset .stars { display: inline-flex; gap: 2px; cursor: pointer; }
+  .asset .stars b { color: #3a4a3a; font-size: 15px; line-height: 1; font-weight: 400; }
+  .asset .stars b.on { color: var(--amber); }
+  .asset .arow { display: flex; border-top: 1px solid #1a201a; }
+  .asset .arow button { flex: 1; padding: 7px 0; border: 0; cursor: pointer; font: 700 10px var(--mono); letter-spacing: .1em; background: transparent; color: var(--dim); }
+  .asset .arow button.reuse { color: var(--green); } .asset .arow button.reuse:hover { background: #0f2a18; }
+  .asset .arow button.tweak:hover { background: #16201f; color: var(--cyan); }
+  .asset .arow button.adel { color: #a06060; } .asset .arow button.adel:hover { background: #2a1010; color: var(--red); }
   #toast {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
     background: #162016; border: 1px solid var(--line); color: var(--txt);
@@ -454,10 +479,17 @@
     <div class="scroll" id="stageswrap" style="display:none"><div id="stages-list"></div></div>
   </section>
 
-  <!-- right: review queue -->
+  <!-- right: review queue ⇄ asset library -->
   <section>
-    <h2>PENDING REVIEW</h2>
+    <div id="rtabs">
+      <button id="rt-review" class="active">REVIEW QUEUE <span class="pilln" id="rt-review-n"></span></button>
+      <button id="rt-library">★ LIBRARY <span class="pilln" id="rt-library-n"></span></button>
+    </div>
     <div class="scroll" id="pending"><div id="none-pending">— QUEUE EMPTY —</div></div>
+    <div class="scroll" id="library" style="display:none">
+      <div id="lib-bar"><span style="font-size:10px;color:var(--dim);margin-right:auto">aired cards — reuse or tweak</span><button data-lfav="all" class="active">all</button><button data-lfav="fav">★ favorites</button></div>
+      <div id="lib-list"></div>
+    </div>
     <div id="compose">
       <h2 style="border:0;background:none;padding:0 0 6px">COMPOSE (MOD-AUTHORED)</h2>
       <textarea id="c-html" placeholder="<div style=&quot;…&quot;>raw HTML+CSS — previews off-air into the queue</div>"></textarea>
@@ -737,6 +769,7 @@
   });
 
   // ---- state poll: health LEDs, bans, pending ----
+  let rtab = "review", libFav = "all"; // right-panel tab + library filter (used by refresh)
   async function refresh() {
     let st;
     try { st = await api("/admin/state"); } catch { return; }
@@ -780,6 +813,11 @@
         ${p.vision ? `<div class="vv" style="color:${p.vision.safe ? "var(--green)" : "var(--red)"}">vision: ${p.vision.safe ? "safe" : "UNSAFE"} ${esc(p.vision.reason || "")}</div>` : ""}
         <div class="row-btns"><button class="approve">▶ AIR IT</button><button class="reject">✕ REJECT</button></div>
       </div>`).join("") : `<div id="none-pending">— QUEUE EMPTY —</div>`;
+
+    // right-panel tab badges + live-refresh the library when it's open
+    $("#rt-review-n").textContent = pend.length ? `(${pend.length})` : "";
+    $("#rt-library-n").textContent = st.assetCount ? `(${st.assetCount})` : "";
+    if (rtab === "library") loadLibrary();
   }
   refresh();
   setInterval(refresh, 5000);
@@ -847,6 +885,67 @@
     const id = item.dataset.id;
     if (ev.target.closest(".approve")) api(`/admin/pending/${id}`, { action: "approve" }).then((r) => { toast(r.ok ? "ON AIR" : `air failed: ${r.error || "?"}`); refresh(); });
     if (ev.target.closest(".reject")) api(`/admin/pending/${id}`, { action: "reject" }).then(() => { toast("rejected"); refresh(); });
+  });
+
+  // ---- ASSET LIBRARY: previously-aired cards, reusable + star-rated ----
+  function setRTab(t) {
+    rtab = t;
+    $("#rt-review").classList.toggle("active", t === "review");
+    $("#rt-library").classList.toggle("active", t === "library");
+    $("#pending").style.display = t === "review" ? "" : "none";
+    $("#library").style.display = t === "library" ? "" : "none";
+    if (t === "library") loadLibrary();
+  }
+  $("#rt-review").addEventListener("click", () => setRTab("review"));
+  $("#rt-library").addEventListener("click", () => setRTab("library"));
+  const starRow = (a) => `<span class="stars" data-id="${esc(a.id)}">${[1, 2, 3].map((n) => `<b class="${n <= a.stars ? "on" : ""}" data-n="${n}">★</b>`).join("")}</span>`;
+  async function loadLibrary() {
+    const r = await api("/admin/assets").catch(() => null);
+    if (!r?.ok || rtab !== "library") return;
+    let assets = r.assets || [];
+    if (libFav === "fav") assets = assets.filter((a) => a.stars > 0);
+    $("#lib-list").innerHTML = assets.length ? assets.map((a) => `
+      <div class="asset" data-id="${esc(a.id)}">
+        ${a.screenshot ? `<img src="data:image/png;base64,${a.screenshot}" alt="">` : ""}
+        <div class="am">
+          <div class="al">${esc(a.label || "card")} <span class="kbadge">${esc(a.kind)}</span></div>
+          <div class="as">${esc(a.who || "")} · used ${a.usedCount || 1}× · ${starRow(a)}</div>
+        </div>
+        <div class="arow">
+          <button class="reuse" data-reuse="${esc(a.id)}" title="re-air this card now">REUSE</button>
+          <button class="tweak" data-tweak="${esc(a.id)}" title="load into compose to edit">TWEAK</button>
+          <button class="adel" data-adel="${esc(a.id)}" title="remove from library">DELETE</button>
+        </div>
+      </div>`).join("") : `<div id="none-pending">— ${libFav === "fav" ? "NO FAVORITES" : "NO SAVED CARDS"} —</div>`;
+  }
+  $("#lib-bar").addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-lfav]"); if (!b) return;
+    libFav = b.dataset.lfav;
+    $$("#lib-bar [data-lfav]").forEach((x) => x.classList.toggle("active", x === b));
+    loadLibrary();
+  });
+  $("#lib-list").addEventListener("click", async (ev) => {
+    const star = ev.target.closest(".stars b");
+    if (star) {
+      const id = star.parentElement.dataset.id;
+      const cur = star.parentElement.querySelectorAll("b.on").length;
+      const n = Number(star.dataset.n);
+      await api("/admin/assets", { id, stars: n === cur ? n - 1 : n }); // click the current top star → clear it
+      return loadLibrary();
+    }
+    const reuse = ev.target.closest("[data-reuse]");
+    if (reuse) { const r = await api("/admin/assets/reuse", { id: reuse.dataset.reuse }); toast(r.ok ? "re-aired ↺" : `failed: ${r.error || "?"}`); return; }
+    const tweak = ev.target.closest("[data-tweak]");
+    if (tweak) {
+      const a = await api(`/admin/asset?id=${encodeURIComponent(tweak.dataset.tweak)}`).catch(() => null);
+      if (!a?.ok) return toast("load failed");
+      $("#c-html").value = a.html; $("#c-kind").value = a.kind;
+      setRTab("review"); $("#c-html").scrollIntoView({ block: "center" }); $("#c-html").focus();
+      toast("loaded into compose — tweak + PREVIEW → QUEUE");
+      return;
+    }
+    const del = ev.target.closest("[data-adel]");
+    if (del) { if (!confirm("Remove this asset from the library?")) return; await api("/admin/assets", { id: del.dataset.adel, remove: true }); return loadLibrary(); }
   });
 
   // ---- USERS view: directory of everyone who interacted + per-user controls --

@@ -22,6 +22,7 @@ import { ban, unban, mute, unmute, listBans, listMutes, isBanned, isMuted } from
 import { listAutomations, setAutomation, addCustom, updateCustom, buildPreviewDirectives } from "./automations.js";
 import { listStages, getStage, addStage, updateStage, removeStage, setActive, buildApplyDirectives, setTitleDefault, featuresOf, sourceKey } from "./stages.js";
 import { setActiveFeatures, activeFeatures } from "./features.js";
+import { captureAsset, listAssets, getAsset, setStars, removeAsset, markUsed } from "./assets.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DASH_HTML = path.resolve(__dirname, "../../dashboard/index.html");
@@ -192,6 +193,7 @@ export function startAdmin({ log = console.log } = {}) {
           scAwait: [...scAwait.values()],
           stage: activeStage ? { id: activeStage.id, label: activeStage.label, kind: activeStage.kind } : null,
           features: activeFeatures(),
+          assetCount: listAssets().length,
         });
       }
 
@@ -424,6 +426,8 @@ export function startAdmin({ log = console.log } = {}) {
         pending.delete(id);
         if (String(b.action) === "approve") {
           const out = await airApproved(item);
+          // a card that actually aired becomes a reusable library asset
+          if (out.ok) captureAsset({ kind: item.kind, html: item.html, who: item.who, screenshot: item.screenshot }).catch(() => {});
           publishFeed({ stage: out.ok ? "approved" : "approve_failed", kind: item.kind, comment: { author: item.who, text: item.request || "" }, error: out.error });
           return json(res, out.ok ? 200 : 502, out);
         }
@@ -440,6 +444,34 @@ export function startAdmin({ log = console.log } = {}) {
         if (!pv.ok) return json(res, 422, { ok: false, error: pv.error || `preview failed (${pv.status})` });
         const entry = enqueuePending({ kind, who: String(b.who || "moderator"), request: "(composed in dashboard)", html, screenshot: pv.screenshot, vision: pv.vision });
         return json(res, 200, { ok: true, id: entry.id });
+      }
+
+      // ---- asset library: previously-aired cards, reusable + star-rated ----
+      if (route === "GET /admin/assets") {
+        return json(res, 200, { ok: true, assets: listAssets() });
+      }
+      // star rating / delete
+      if (route === "POST /admin/assets") {
+        const b = await readJson(req);
+        const out = b.remove ? await removeAsset(String(b.id || "")) : await setStars(String(b.id || ""), b.stars);
+        return json(res, out.ok ? 200 : 404, out);
+      }
+      // re-air a saved asset (its markup already passed the gate when first aired;
+      // air as operator, the vision gate still re-checks when a key is present)
+      if (route === "POST /admin/assets/reuse") {
+        const b = await readJson(req);
+        const a = getAsset(String(b.id || ""));
+        if (!a) return json(res, 404, { ok: false, error: "unknown asset" });
+        const out = await airApproved({ kind: a.kind, html: a.html, who: a.who });
+        if (out.ok) markUsed(a.id);
+        publishFeed({ stage: out.ok ? "approved" : "approve_failed", kind: a.kind, comment: { author: a.who, text: `reused: ${a.label}` }, error: out.error });
+        return json(res, out.ok ? 200 : 502, out);
+      }
+      // raw markup of one asset, for the "tweak" → load-into-compose action
+      if (route === "GET /admin/asset") {
+        const a = getAsset(String(url.searchParams.get("id") || ""));
+        if (!a) return json(res, 404, { ok: false, error: "unknown asset" });
+        return json(res, 200, { ok: true, id: a.id, kind: a.kind, html: a.html, who: a.who });
       }
 
       // mod clicked a cooldown-skipped row: re-run it through the director

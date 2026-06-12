@@ -18,6 +18,7 @@ import { isBanned, isMuted, loadBans } from "./bans.js";
 import { automation, loadAutomations, setAutomationPoster, emitAutomation, superchatDirective } from "./automations.js";
 import { loadStages, listStages, getStage, featuresOf } from "./stages.js";
 import { getFeature, setActiveFeatures } from "./features.js";
+import { loadAssets } from "./assets.js";
 import { startAdmin, publishFeed, enqueuePending, previewMarkup, setVitalsProvider, setReplayHandler } from "./admin.js";
 import { unitsSpent } from "./quota.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
@@ -266,6 +267,8 @@ async function main() {
   await loadStages();
   // apply the persisted active stage's interactive features (votes/effects/…)
   setActiveFeatures(featuresOf(getStage(listStages().active)));
+  const assetCount = await loadAssets();
+  if (assetCount) console.log(`[ingest] asset library: ${assetCount} saved`);
   const banCount = await loadBans();
   if (banCount) console.log(`[ingest] ban list: ${banCount} entr${banCount === 1 ? "y" : "ies"}`);
   setVitalsProvider(() => ({
