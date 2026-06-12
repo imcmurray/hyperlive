@@ -47,6 +47,7 @@ const ALLOWED_ACTIONS = new Set([
                     // only — reachable via the loopback /mutate (dashboard), NOT
                     // emitted by the director, so viewers can't set the source.
   "setTitles",      // fly the overlay title block in/out (per-stage or global)
+  "setVibe",        // show/hide the mood "vibe" descriptor chip (per-stage)
 ]);
 // NB: showCard/takeover/clearCards are deliberately NOT in this allowlist —
 // model-authored markup may only enter through POST /card and /takeover below,

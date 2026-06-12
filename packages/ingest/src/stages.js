@@ -58,7 +58,7 @@ const ytId = (s) => {
 const httpUrl = (u) => { try { const x = new URL(String(u)); return (x.protocol === "https:" || x.protocol === "http:") ? x.href : null; } catch { return null; } };
 
 // validate + normalize an incoming stage definition (operator input)
-function normalize({ label, kind, source, url, id, muted, theme, titles, features, headline, kicker, subhead, ticker, showTicker } = {}) {
+function normalize({ label, kind, source, url, id, muted, theme, titles, features, headline, kicker, subhead, ticker, showTicker, showVibe } = {}) {
   kind = String(kind || "").toLowerCase();
   if (!STAGE_KINDS.includes(kind)) return { error: `kind must be ${STAGE_KINDS.join("|")}` };
   const out = { kind, label: String(label || "").slice(0, 60) };
@@ -82,6 +82,7 @@ function normalize({ label, kind, source, url, id, muted, theme, titles, feature
     if (items.length) out.ticker = items;
   }
   out.showTicker = showTicker !== false; // explicit on every stage (default shown)
+  out.showVibe = showVibe !== false;     // the mood "vibe" descriptor chip (default shown)
   if (kind === "youtube") {
     // NB: videoId (the 11-char YouTube id), NOT id — id is the stage's own
     // unique key, assigned by addStage; conflating them clobbers one.
@@ -252,6 +253,9 @@ export function buildApplyDirectives(stage, { skipSource = false } = {}) {
   if (stage.showTicker === false) d.push({ action: "setTicker", params: { show: false } });
   else if (stage.ticker && stage.ticker.length) d.push({ action: "setTicker", params: { items: stage.ticker } });
   else if (stage.showTicker === true) d.push({ action: "setTicker", params: { show: true } });
+  // the mood "vibe" descriptor chip (explicit on normalized stages)
+  if (stage.showVibe === false) d.push({ action: "setVibe", params: { show: false } });
+  else if (stage.showVibe === true) d.push({ action: "setVibe", params: { show: true } });
   // Clear residual on-stage elements for any DISABLED feature, so applying the
   // stage brings the broadcast to the same clean state the fresh preview shows.
   // (Disabling a feature stops NEW events but doesn't remove what's already up —

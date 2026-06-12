@@ -53,10 +53,14 @@
     if (el) el.dataset.show = on ? "true" : "false";
   }
 
-  // the subtle "current vibe" chip (Mood Engine descriptor), fade-swapped
+  // the subtle "current vibe" chip (Mood Engine descriptor), fade-swapped.
+  // vibeHidden lets a stage switch the chip off — the mood engine keeps running
+  // but showVibe respects the hide, so it won't pop back in.
+  let vibeHidden = false;
   function showVibe(text) {
     const el = $("#vibe");
     if (!el) return;
+    if (vibeHidden) { el.dataset.show = "false"; return; }
     const t = clean(text, 48);
     if (!t) { el.dataset.show = "false"; return; }
     el.dataset.show = "true";
@@ -1186,6 +1190,22 @@
         .map((s) => clean(s, 60)).filter(Boolean).slice(0, 8);
       // new items → rotate them; none → just re-show the current set
       return startTickerCards(items.length ? items : undefined);
+    },
+
+    // show/hide the "current vibe" chip (the Mood Engine descriptor). A stage
+    // can switch it off; the mood engine keeps running but the chip stays hidden.
+    setVibe(p = {}) {
+      const el = $("#vibe");
+      if (!el) return { ok: false };
+      vibeHidden = p.show === false;
+      if (vibeHidden) {
+        if (gsap) gsap.to(el, { opacity: 0, duration: 0.3, ease: "power2.in", onComplete: () => { el.dataset.show = "false"; } });
+        else el.dataset.show = "false";
+      } else {
+        if (gsap) gsap.set(el, { opacity: 1 });
+        el.dataset.show = el.textContent.trim() ? "true" : "false"; // re-show if there's a descriptor
+      }
+      return { ok: true, show: !vibeHidden };
     },
 
     // toggle a named effect on/off — fades in/out (no hard cut)

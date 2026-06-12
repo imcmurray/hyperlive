@@ -367,7 +367,7 @@ export function startAdmin({ log = console.log } = {}) {
       // add / edit / remove a custom stage
       if (route === "POST /admin/stages/custom") {
         const b = await readJson(req);
-        const def = { label: b.label, kind: b.kind, source: b.source, url: b.url, muted: b.muted, theme: b.theme, titles: b.titles, features: b.features, headline: b.headline, kicker: b.kicker, subhead: b.subhead, ticker: b.ticker, showTicker: b.showTicker };
+        const def = { label: b.label, kind: b.kind, source: b.source, url: b.url, muted: b.muted, theme: b.theme, titles: b.titles, features: b.features, headline: b.headline, kicker: b.kicker, subhead: b.subhead, ticker: b.ticker, showTicker: b.showTicker, showVibe: b.showVibe };
         let out, verb;
         if (b.remove) { out = await removeStage(String(b.id || "")); verb = out.reset ? "reset" : "removed"; }
         else if (b.id) { out = await updateStage(String(b.id), def); verb = "edited"; }

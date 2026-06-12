@@ -191,6 +191,21 @@ test("showTicker drives the ticker directive: off→hide, on+msgs→items, on→
   assert.equal(buildApplyDirectives({ kind: "scene" }).some((d) => d.action === "setTicker"), false);
 });
 
+test("showVibe drives the vibe-chip directive (default on; explicit off→hide)", async () => {
+  assert.deepEqual(buildApplyDirectives({ kind: "scene", showVibe: false }).find((d) => d.action === "setVibe"),
+    { action: "setVibe", params: { show: false } });
+  assert.deepEqual(buildApplyDirectives({ kind: "scene", showVibe: true }).find((d) => d.action === "setVibe"),
+    { action: "setVibe", params: { show: true } });
+  // raw object without showVibe → no setVibe (back-compat)
+  assert.equal(buildApplyDirectives({ kind: "scene" }).some((d) => d.action === "setVibe"), false);
+  // normalize defaults it on
+  const s = await addStage({ kind: "scene" });
+  assert.equal(getStage(s.stage.id).showVibe, true);
+  const off = await addStage({ kind: "scene", showVibe: false });
+  assert.equal(getStage(off.stage.id).showVibe, false);
+  await removeStage(s.stage.id); await removeStage(off.stage.id);
+});
+
 test("applying a stage clears residual elements for disabled features", async () => {
   // votes+effects OFF → the directives include voteEnd (dismiss panel) + a
   // calming setMood (effects to off) so the live stage matches a fresh preview

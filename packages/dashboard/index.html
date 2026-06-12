@@ -1014,6 +1014,7 @@
           ${s.titleAnim === "hide" ? `<span class="kbadge t">titles off</span>` : s.titleAnim ? `<span class="kbadge t">titles ${esc(TITLE_LABELS[s.titleAnim] || s.titleAnim)}</span>` : ""}
           ${s.headline || s.kicker || s.subhead ? `<span class="kbadge t">custom titles</span>` : ""}
           ${s.showTicker === false ? `<span class="kbadge t">ticker off</span>` : s.ticker && s.ticker.length ? `<span class="kbadge t">ticker ${s.ticker.length}</span>` : ""}
+          ${s.showVibe === false ? `<span class="kbadge t">vibe off</span>` : ""}
           ${s.customized ? `<span class="kbadge" style="color:#7a9">edited</span>` : ""}
         </div>
         <div class="sub">${stageSummary(s)}</div>
@@ -1066,6 +1067,7 @@
           <input id="sa-theme" placeholder="theme (optional)" style="width:130px">
           <label><input type="checkbox" id="sa-show-titles" checked style="width:auto"> show titles</label>
           <label>anim <select id="sa-titles">${titleOpts(r.titleAnims.filter((a) => a !== "hide"), "", true)}</select></label>
+          <label title="the mood 'vibe' descriptor chip, e.g. THE ROOM FEELS CLOSE"><input type="checkbox" id="sa-show-vibe" checked style="width:auto"> show vibe</label>
           <label><input type="checkbox" id="sa-muted" style="width:auto"> mute audio</label>
         </div>
         <div class="featbox" id="sa-feats">
@@ -1111,6 +1113,7 @@
     $("#sa-subhead").value = s.subhead || "";
     $("#sa-ticker").value = (s.ticker || []).join("\n");
     $("#sa-show-ticker").checked = s.showTicker !== false;
+    $("#sa-show-vibe").checked = s.showVibe !== false;
     syncAddForm();
     $("#sa-heading").textContent = `EDIT STAGE — ${s.label}`;
     $("#sa-add").textContent = "✓ SAVE";
@@ -1179,6 +1182,7 @@
         kicker: $("#sa-kicker").value.trim(), headline: $("#sa-headline").value.trim(),
         subhead: $("#sa-subhead").value.trim(),
         ticker: $("#sa-ticker").value, showTicker: $("#sa-show-ticker").checked,
+        showVibe: $("#sa-show-vibe").checked,
       };
       if (editStageId) body.id = editStageId; // edit instead of add
       const r = await api("/admin/stages/custom", body);
