@@ -14,8 +14,8 @@ export const FEATURE_LABELS = {
   superchats: "Superchat cards",
   effects: "Ambient effects",
   welcome: "Welcome messages",
-  popups: "Chat reaction popups",
-  directives: "Chat → scene (shoutouts)",
+  popups: "Emoji reactions",
+  directives: "Chat shoutout cards",
   automations: "Custom automations",
 };
 
