@@ -358,6 +358,10 @@ function buildControlApp() {
   app.post("/outro", async (req, res) => {
     const artists = dj ? dj.artists() : [];
     await applyDirective({ action: "setStandby", params: { mode: "outro", artists } }).catch(() => {});
+    // the show's over: stop any stage source (overlay video/image/YouTube) still
+    // running UNDERNEATH the outro screen — otherwise it keeps playing, and its
+    // audio keeps sounding, off-camera behind the sign-off.
+    await applyDirective({ action: "setStageSource", params: { kind: "none" } }).catch(() => {});
     if (dj) dj.fade(0, 6000); // gentle sign-off fade
     res.json({ ok: true, artists });
   });
