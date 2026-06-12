@@ -38,9 +38,15 @@ export async function loadAssets() {
 
 async function persist() { try { await saveJson(FILE, { assets }); } catch { /* non-fatal */ } }
 
-// derive a short human label from the markup (first text or a tag), best-effort
+// derive a short human label from the markup (first text or a tag), best-effort.
+// strips tags and decodes the common HTML entities so the label reads cleanly
+// (e.g. "&#127881; 1,000 &#8212; thanks" → "🎉 1,000 — thanks").
 function deriveLabel(html) {
-  const text = String(html || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  let text = String(html || "").replace(/<[^>]*>/g, " ")
+    .replace(/&#(\d+);/g, (_, n) => { try { return String.fromCodePoint(+n); } catch { return " "; } })
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return " "; } })
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ").trim();
   if (text) return text.slice(0, 40);
   const tag = String(html || "").match(/<(\w+)/);
   return tag ? `<${tag[1]}>…` : "card";

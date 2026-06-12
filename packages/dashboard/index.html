@@ -921,7 +921,7 @@
   $("#lib-bar").addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-lfav]"); if (!b) return;
     libFav = b.dataset.lfav;
-    $$("#lib-bar [data-lfav]").forEach((x) => x.classList.toggle("active", x === b));
+    document.querySelectorAll("#lib-bar [data-lfav]").forEach((x) => x.classList.toggle("active", x === b));
     loadLibrary();
   });
   $("#lib-list").addEventListener("click", async (ev) => {
