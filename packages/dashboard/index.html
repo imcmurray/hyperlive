@@ -372,11 +372,18 @@
   .approve { background: #0f2a18; color: var(--green); } .approve:hover { background: #16401f; }
   .reject  { background: #2a0f0f; color: var(--red); }   .reject:hover  { background: #401616; }
   #none-pending { color: var(--dim); text-align: center; padding: 26px 0 16px; font-size: 11px; letter-spacing: .14em; }
-  #compose { border-top: 1px solid var(--line); padding: 10px; flex: none; }
+  /* draggable splitter between the list and the compose editor */
+  #rsplit { flex: none; height: 9px; cursor: ns-resize; background: #0c0f0c; border-top: 1px solid var(--line); position: relative; }
+  #rsplit::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 34px; height: 3px; border-top: 1px solid #34452f; border-bottom: 1px solid #34452f; }
+  #rsplit:hover::after, #rsplit.drag::after { border-color: var(--green); }
+  /* the compose panel: explicit height the splitter adjusts; textarea fills it */
+  #compose { padding: 10px; flex: none; height: 210px; min-height: 96px; display: flex; flex-direction: column; }
+  #compose h2 { flex: none; }
   #compose textarea {
-    width: 100%; height: 132px; background: #0c0f0c; border: 1px solid var(--line);
-    color: var(--txt); font: 11px var(--mono); padding: 7px; border-radius: 3px; resize: vertical;
+    width: 100%; flex: 1; min-height: 44px; background: #0c0f0c; border: 1px solid var(--line);
+    color: var(--txt); font: 11px var(--mono); padding: 7px; border-radius: 3px; resize: none;
   }
+  #compose .crow { flex: none; }
   #compose .crow { display: flex; gap: 6px; margin-top: 6px; }
   #compose select, #compose input {
     background: #0c0f0c; border: 1px solid var(--line); color: var(--txt);
@@ -503,6 +510,7 @@
       <div id="lib-bar"><span style="font-size:10px;color:var(--dim);margin-right:auto">aired cards — reuse or tweak</span><button data-lfav="all" class="active">all</button><button data-lfav="fav">★ favorites</button></div>
       <div id="lib-list"></div>
     </div>
+    <div id="rsplit" title="drag to resize the compose editor"></div>
     <div id="compose">
       <h2 style="border:0;background:none;padding:0 0 6px">COMPOSE (MOD-AUTHORED)</h2>
       <textarea id="c-html" placeholder="<div style=&quot;…&quot;>raw HTML+CSS — previews off-air into the queue</div>"></textarea>
@@ -951,6 +959,31 @@
   }
   $("#rt-review").addEventListener("click", () => setRTab("review"));
   $("#rt-library").addEventListener("click", () => setRTab("library"));
+
+  // ---- drag the splitter to resize the compose editor (taller/shorter) ----
+  (() => {
+    const split = $("#rsplit"), compose = $("#compose");
+    if (!split || !compose) return;
+    const saved = Number(localStorage.getItem("hl-compose-h"));
+    if (saved >= 96) compose.style.height = saved + "px";
+    let startY = 0, startH = 0;
+    const move = (e) => {
+      const max = compose.parentElement.clientHeight - 120; // keep room for the list
+      const h = Math.max(96, Math.min(max, startH + (startY - e.clientY))); // drag up → taller
+      compose.style.height = h + "px";
+    };
+    const up = () => {
+      split.classList.remove("drag"); document.body.style.userSelect = "";
+      localStorage.setItem("hl-compose-h", parseInt(compose.style.height) || 210);
+      window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up);
+    };
+    split.addEventListener("mousedown", (e) => {
+      startY = e.clientY; startH = compose.offsetHeight;
+      split.classList.add("drag"); document.body.style.userSelect = "none";
+      window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+      e.preventDefault();
+    });
+  })();
   const starRow = (a) => `<span class="stars" data-id="${esc(a.id)}">${[1, 2, 3].map((n) => `<b class="${n <= a.stars ? "on" : ""}" data-n="${n}">★</b>`).join("")}</span>`;
   async function loadLibrary() {
     const r = await api("/admin/assets").catch(() => null);
