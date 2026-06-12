@@ -269,6 +269,11 @@
   }
   .stage-add .grow { flex: 1; min-width: 120px; }
   .stage-add label { font-size: 10px; color: var(--dim); display: flex; align-items: center; gap: 4px; }
+  .stage-add .sa-section { font: 10px var(--mono); color: var(--green); text-transform: uppercase; letter-spacing: .06em; margin-top: 8px; padding-top: 7px; border-top: 1px solid #161d16; }
+  .stage-add .sa-section span { color: var(--dim); text-transform: none; letter-spacing: 0; }
+  .stage-add .sa-shows { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .stage-add .sa-shows label { font-size: 11px; color: #cfe8cf; }
+  .stage-add .sa-sub { font-size: 10px; color: var(--dim); padding-left: 2px; }
   .kbadge { font: 9px var(--mono); padding: 1px 5px; border: 1px solid var(--line); border-radius: 3px; color: var(--dim); text-transform: uppercase; }
   .kbadge.t { color: #b9a25a; border-color: #3a3320; }
   /* stage kind-filter toolbar */
@@ -1056,6 +1061,7 @@
       ${rows}
       <h2 id="sa-heading">ADD A STAGE</h2>
       <div class="stage-add">
+        <!-- source / identity -->
         <div class="line">
           <input id="sa-label" class="grow" placeholder="stage name…">
           <select id="sa-kind"><option value="youtube">youtube</option><option value="video">video / HLS</option><option value="image">image</option><option value="scene">scene</option></select>
@@ -1064,17 +1070,19 @@
           <input id="sa-source" class="grow" placeholder="YouTube URL or id, or a media URL">
         </div>
         <div class="line">
-          <input id="sa-theme" placeholder="theme (optional)" style="width:130px">
-          <label><input type="checkbox" id="sa-show-titles" checked style="width:auto"> show titles</label>
-          <label>anim <select id="sa-titles">${titleOpts(r.titleAnims.filter((a) => a !== "hide"), "", true)}</select></label>
-          <label title="the mood 'vibe' descriptor chip, e.g. THE ROOM FEELS CLOSE"><input type="checkbox" id="sa-show-vibe" checked style="width:auto"> show vibe</label>
+          <input id="sa-theme" placeholder="theme (optional)" style="width:150px">
           <label><input type="checkbox" id="sa-muted" style="width:auto"> mute audio</label>
         </div>
-        <div class="featbox" id="sa-feats">
-          <span style="font-size:10px;color:var(--dim)">features on this stage:</span>
-          ${stageFeatKeys.map((k) => `<label><input type="checkbox" data-feat="${esc(k)}" checked style="width:auto"> ${esc(stageFeatLabels[k] || k)}</label>`).join("")}
+
+        <!-- OVERLAY: everything shown ON TOP of the stage -->
+        <div class="sa-section">overlay <span>— what's shown on top of the stage</span></div>
+        <div class="sa-shows">
+          <label><input type="checkbox" id="sa-show-titles" checked style="width:auto"> show titles</label>
+          <label style="color:var(--dim)">anim <select id="sa-titles">${titleOpts(r.titleAnims.filter((a) => a !== "hide"), "", true)}</select></label>
+          <label><input type="checkbox" id="sa-show-ticker" checked style="width:auto"> show ticker</label>
+          <label title="the mood 'vibe' chip, e.g. THE ROOM FEELS CLOSE"><input type="checkbox" id="sa-show-vibe" checked style="width:auto"> show vibe chip</label>
         </div>
-        <div style="font-size:10px;color:var(--dim);padding:4px 0 0">overlay title text + ticker (optional — these ride on top of the stage):</div>
+        <div class="sa-sub">title text (blank = keep the scene default)</div>
         <div class="line">
           <input id="sa-kicker" placeholder="kicker" style="width:150px">
           <input id="sa-headline" class="grow" placeholder="headline text">
@@ -1082,11 +1090,18 @@
         <div class="line">
           <input id="sa-subhead" class="grow" placeholder="subhead text">
         </div>
-        <div class="line" style="align-items:flex-start">
-          <label style="padding-top:6px;white-space:nowrap"><input type="checkbox" id="sa-show-ticker" checked style="width:auto"> show ticker</label>
-          <textarea id="sa-ticker" class="grow" placeholder="one message per line (up to 8) — blank keeps the default ticker" style="height:52px;resize:vertical;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px"></textarea>
-        </div>
+        <div class="sa-sub">ticker messages (one per line, up to 8 — blank = keep the default)</div>
         <div class="line">
+          <textarea id="sa-ticker" class="grow" placeholder="ticker messages…" style="height:48px;resize:vertical;background:#0c0f0c;border:1px solid var(--line);color:var(--txt);font:11px var(--mono);padding:6px 8px;border-radius:3px"></textarea>
+        </div>
+
+        <!-- FEATURES: chat-driven behaviours -->
+        <div class="sa-section">features <span>— chat-driven behaviours on this stage</span></div>
+        <div class="featbox" id="sa-feats">
+          ${stageFeatKeys.map((k) => `<label><input type="checkbox" data-feat="${esc(k)}" checked style="width:auto"> ${esc(stageFeatLabels[k] || k)}</label>`).join("")}
+        </div>
+
+        <div class="line" style="margin-top:6px">
           <button class="btn" id="sa-cancel" style="margin-left:auto;display:none">cancel</button>
           <button class="btn go" id="sa-add">+ ADD STAGE</button>
         </div>
@@ -1127,9 +1142,13 @@
     const src = $("#sa-source");
     if (src) { src.style.display = isScene ? "none" : ""; src.parentElement.style.display = isScene ? "none" : ""; }
     const mute = $("#sa-muted"); if (mute) mute.parentElement.style.display = (kindSel.value === "youtube" || kindSel.value === "video") ? "" : "none";
-    // the animation picker only matters when titles are shown
+    // the animation picker + title text only matter when titles are shown
     const showT = $("#sa-show-titles"), anim = $("#sa-titles");
-    if (showT && anim) { anim.disabled = !showT.checked; anim.parentElement.style.opacity = showT.checked ? "1" : ".4"; }
+    const titlesOn = showT ? showT.checked : true;
+    if (anim) { anim.disabled = !titlesOn; anim.parentElement.style.opacity = titlesOn ? "1" : ".4"; }
+    for (const id of ["sa-kicker", "sa-headline", "sa-subhead"]) {
+      const el = $("#" + id); if (el) { el.disabled = !titlesOn; el.style.opacity = titlesOn ? "1" : ".4"; }
+    }
     // the ticker textarea only matters when the ticker is shown
     const showTk = $("#sa-show-ticker"), tk = $("#sa-ticker");
     if (showTk && tk) { tk.disabled = !showTk.checked; tk.style.opacity = showTk.checked ? "1" : ".4"; }
