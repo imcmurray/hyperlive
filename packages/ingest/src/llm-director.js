@@ -10,6 +10,7 @@
 // what it wants and the model picks the right directive."
 
 import { config } from "./config.js";
+import { bumpAnthropic } from "./usage.js";
 
 export const THEMES = [
   "synthwave", "sunrise", "mono", "forest", "aurora", "ember",
@@ -166,6 +167,7 @@ function userContent(comment) {
  */
 export async function llmIntent(comment) {
   try {
+    bumpAnthropic();
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       signal: AbortSignal.timeout(8000), // serial pipeline — don't stall on a hung connection

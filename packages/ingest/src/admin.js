@@ -22,7 +22,7 @@ import { ban, unban, mute, unmute, listBans, listMutes, isBanned, isMuted } from
 import { listAutomations, setAutomation, addCustom, updateCustom, buildPreviewDirectives } from "./automations.js";
 import { listStages, getStage, addStage, updateStage, removeStage, setActive, buildApplyDirectives, setTitleDefault, featuresOf, sourceKey } from "./stages.js";
 import { setActiveFeatures, activeFeatures } from "./features.js";
-import { captureAsset, listAssets, getAsset, setStars, removeAsset, markUsed } from "./assets.js";
+import { captureAsset, listAssets, getAsset, setStars, setLabel, removeAsset, markUsed } from "./assets.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DASH_HTML = path.resolve(__dirname, "../../dashboard/index.html");
@@ -67,13 +67,26 @@ const USER_STAGES = new Set([
   "applied", "blocked", "banned", "muted", "skipped", "held", "card_held",
   "card", "card_cooldown", "music_request", "music_like", "vote", "error", "superchat",
 ]);
+// Mod actions taken AGAINST a user (ban/mute/…). These belong on the target's
+// own timeline — with a timestamp, exactly like the feed — but they are not
+// messages FROM the user, so they don't inflate msg counts and (per the rule
+// above) never conjure a user record from nothing.
+const USER_MOD_STAGES = new Set(["banned_by_mod", "muted_by_mod", "unbanned", "unmuted"]);
 const USERS_MAX = 500, USER_EVENTS_MAX = 50;
 const users = new Map(); // author(lower) → profile
 
 function trackUser(evt) {
   const c = evt.comment;
-  if (!c?.author || !USER_STAGES.has(evt.stage)) return;
+  if (!c?.author) return;
   const k = c.author.toLowerCase();
+  if (USER_MOD_STAGES.has(evt.stage)) {
+    const u = users.get(k); // only annotate an existing user; never create one
+    if (!u) return;
+    u.events.push(evt);
+    if (u.events.length > USER_EVENTS_MAX) u.events.shift();
+    return;
+  }
+  if (!USER_STAGES.has(evt.stage)) return;
   let u = users.get(k);
   if (!u) {
     u = { author: c.author, channelId: "", avatar: "", first: evt.t, msgs: 0, stages: {}, superchats: 0, events: [] };
@@ -465,10 +478,14 @@ export function startAdmin({ log = console.log } = {}) {
       if (route === "GET /admin/assets") {
         return json(res, 200, { ok: true, assets: listAssets() });
       }
-      // star rating / delete
+      // star rating / rename / delete
       if (route === "POST /admin/assets") {
         const b = await readJson(req);
-        const out = b.remove ? await removeAsset(String(b.id || "")) : await setStars(String(b.id || ""), b.stars);
+        const out = b.remove
+          ? await removeAsset(String(b.id || ""))
+          : b.label !== undefined
+            ? await setLabel(String(b.id || ""), b.label)
+            : await setStars(String(b.id || ""), b.stars);
         return json(res, out.ok ? 200 : 404, out);
       }
       // re-air a saved asset (its markup already passed the gate when first aired;

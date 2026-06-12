@@ -464,10 +464,11 @@ body.has-cover .bg-base { opacity: 0.45; }
 .sc-card.tier-medium { border-width: 2px; }
 .sc-card.tier-large { border-width: 2.5px; box-shadow: 0 16px 70px rgba(255, 200, 61, 0.4), inset 0 0 0 1px rgba(255, 200, 61, 0.2); }
 
-/* Tier 2: sandboxed viewer-card slot (lower right, above ticker, below grain) */
-#card-slot { position: absolute; right: 48px; bottom: 210px; z-index: 5; pointer-events: none; }
+/* Tier 2: sandboxed viewer cards. Full-stage layer; each card is positioned
+   absolutely (left/top set per-card in scene.js so a burst scatters, not stacks) */
+#card-slot { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
 .viewer-card {
-  width: 362px; border-radius: 14px; overflow: hidden;
+  position: absolute; width: 362px; border-radius: 14px; overflow: hidden;
   background: rgba(10, 8, 26, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);

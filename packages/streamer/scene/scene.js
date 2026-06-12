@@ -771,6 +771,52 @@
     return f;
   }
 
+  // ---- viewer-card placement (Tier 2) -------------------------------------
+  // A busy room can submit cards faster than they expire, so several may share
+  // the stage. Each new card is dropped at a random spot that avoids the HUD
+  // AND every card already showing — so a fresh card never lands on the last
+  // one — and self-retires on a TTL. At the cap the oldest is retired early.
+  const CARD_MAX = 4;        // simultaneous cards before the oldest is retired
+  const CARD_TTL = 14;       // default dwell seconds (was a fixed 20 — felt long)
+  const liveCards = [];      // [{ wrap, timer, rect }] oldest → newest
+  // keep-out rects [x,y,w,h] on the 1280×720 stage: the centre-left headline
+  // block, the top-right shoutout stack, and the bottom HUD band.
+  const CARD_KEEPOUT = [
+    [70, 235, 940, 250],   // kicker / headline / subhead
+    [780, 24, 500, 300],   // shoutouts (top-right)
+    [0, 560, 1280, 160],   // now-playing + vibe + ticker (bottom band)
+  ];
+  function rectOverlap(a, b) {
+    const x = Math.max(0, Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0]));
+    const y = Math.max(0, Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]));
+    return x * y;
+  }
+  // sample random origins, score each by overlap with the HUD + live cards
+  // (card-on-card weighed hardest), keep the least-covered one.
+  function placeCard(w, h) {
+    const minX = 28, minY = 28, maxX = 1280 - w - 28, maxY = 720 - h - 28;
+    let best = [Math.round(maxX), minY, w, h], bestPenalty = Infinity;
+    for (let i = 0; i < 28; i++) {
+      const r = [minX + Math.random() * (maxX - minX), minY + Math.random() * (maxY - minY), w, h];
+      let pen = 0;
+      for (const k of CARD_KEEPOUT) pen += rectOverlap(r, k);
+      for (const c of liveCards) pen += rectOverlap(r, c.rect) * 3;
+      if (pen < bestPenalty) { bestPenalty = pen; best = r; if (pen === 0) break; }
+    }
+    return best;
+  }
+  function retireCard(entry) {
+    if (!entry) return;
+    const i = liveCards.indexOf(entry);
+    if (i >= 0) liveCards.splice(i, 1);
+    if (entry.timer && entry.timer.kill) entry.timer.kill();
+    if (entry.tmo) clearTimeout(entry.tmo);
+    const wrap = entry.wrap;
+    if (!wrap) return;
+    if (gsap) gsap.to(wrap, { opacity: 0, scale: 0.92, duration: 0.5, ease: "power2.in", onComplete: () => wrap.remove() });
+    else wrap.remove();
+  }
+
   // ---- stage source (overlay mode) state ----------------------------------
   // The YouTube IFrame Player API is the only reliable way to autoplay WITH
   // sound (a bare embed auto-mutes). It's lazy-loaded the first time a YouTube
@@ -871,16 +917,21 @@
         : { ok: false, error: "no valid ops" };
     },
 
-    // Tier 2: show a (pre-vetted) viewer card in the sandboxed slot
+    // Tier 2: show a (pre-vetted) viewer card. Several can coexist during a
+    // burst; each is scattered clear of the HUD + other cards and self-retires.
     showCard(p = {}) {
       const html = String(p.html || "");
       if (!html.trim() || html.length > CARD_HTML_MAX) return { ok: false, error: "html missing or too large" };
       const slot = $("#card-slot");
       if (!slot) return { ok: false, error: "no card slot" };
-      const ttl = clampNum(p.seconds, 4, 120, 20);
-      slot.replaceChildren(); // one card at a time
+      const ttl = clampNum(p.seconds, 4, 120, CARD_TTL);
+      while (liveCards.length >= CARD_MAX) retireCard(liveCards[0]); // make room
       const wrap = document.createElement("div");
       wrap.className = "viewer-card";
+      // the card's footprint includes the label strip (~34px) + borders
+      const rect = placeCard(CARD_W + 2, CARD_H + 34);
+      wrap.style.left = Math.round(rect[0]) + "px";
+      wrap.style.top = Math.round(rect[1]) + "px";
       const label = document.createElement("div");
       label.className = "viewer-card-label";
       label.textContent = p.who ? `✦ card by ${clean(p.who, 24)}` : "✦ viewer card";
@@ -888,28 +939,31 @@
       const frame = sandboxedFrame(html, CARD_W, CARD_H);
       wrap.appendChild(frame);
       slot.appendChild(wrap);
+      const entry = { wrap, rect: [rect[0], rect[1], CARD_W + 2, CARD_H + 34], timer: null, tmo: null };
+      liveCards.push(entry);
       if (gsap) {
         // sandboxed srcdoc iframes are out-of-process and paint lazily — start
         // the entrance only once the subdocument has loaded, or the card fades
-        // in over blank pixels
-        gsap.set(wrap, { opacity: 0, x: 46, scale: 0.92 });
+        // in over blank pixels. No x-slide now that cards land anywhere.
+        gsap.set(wrap, { opacity: 0, scale: 0.9, y: 14 });
         let revealed = false;
         const reveal = () => {
           if (revealed) return;
           revealed = true;
-          gsap.to(wrap, { opacity: 1, x: 0, scale: 1, duration: 0.7, ease: "back.out(1.4)" });
+          gsap.to(wrap, { opacity: 1, scale: 1, y: 0, duration: 0.6, ease: "back.out(1.4)" });
         };
         frame.addEventListener("load", reveal, { once: true });
         gsap.delayedCall(1.5, reveal); // fallback if load never fires
-        gsap.delayedCall(ttl, () => {
-          gsap.to(wrap, { opacity: 0, x: 46, duration: 0.6, ease: "power2.in", onComplete: () => wrap.remove() });
-        });
+        entry.timer = gsap.delayedCall(ttl, () => retireCard(entry));
+      } else {
+        entry.tmo = setTimeout(() => retireCard(entry), ttl * 1000);
       }
-      return { ok: true, seconds: ttl };
+      return { ok: true, seconds: ttl, cards: liveCards.length };
     },
 
     // operator kill for everything model-authored
     clearCards() {
+      for (const e of liveCards.splice(0)) { if (e.timer && e.timer.kill) e.timer.kill(); if (e.tmo) clearTimeout(e.tmo); }
       const s = $("#card-slot");
       if (s) s.replaceChildren();
       SceneAPI.endTakeover();
@@ -922,7 +976,7 @@
       if (!html.trim() || html.length > CARD_HTML_MAX * 4) return { ok: false, error: "html missing or too large" };
       const host = $("#takeover");
       if (!host) return { ok: false, error: "no takeover layer" };
-      const secs = clampNum(p.seconds, 5, 90, 20);
+      const secs = clampNum(p.seconds, 5, 90, 16);
       const frame = sandboxedFrame(html, 1280, 720);
       host.replaceChildren(frame);
       host.dataset.show = "true";

@@ -407,7 +407,9 @@
   .asset img { width: 94px; height: 60px; object-fit: cover; background: #000; border-radius: 3px; flex: 0 0 auto; }
   .asset .am { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .asset .al { display: flex; align-items: center; gap: 5px; }
-  .asset .alt { flex: 1; min-width: 0; color: #cfe8cf; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .asset .alt { flex: 1; min-width: 0; color: #cfe8cf; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text; }
+  .asset .alt:hover { color: #eafff0; }
+  .asset .alt.editing { white-space: normal; overflow: visible; text-overflow: clip; outline: 1px solid var(--cyan); background: #0a1a1a; border-radius: 3px; padding: 0 3px; color: #eafff0; }
   .asset .as { color: var(--dim); font-size: 9px; margin-top: 3px; display: flex; align-items: center; gap: 5px; }
   .asset .stars { display: inline-flex; gap: 2px; cursor: pointer; }
   .asset .stars b { color: #3a4a3a; font-size: 13px; line-height: 1; font-weight: 400; }
@@ -813,7 +815,8 @@
     // vitals (top bar) + title badge
     const v = st.vitals || {};
     const quota = v.source === "youtube" ? ` · YT <b>${v.quotaUnits || 0}</b>/${v.quotaLimit || "?"}u` : "";
-    $("#vitals-bar").innerHTML = `<b>${v.processed || 0}</b> in · <b>${v.applied || 0}</b> applied · <b>${v.blocked || 0}</b> blocked${quota}`;
+    const ai = v.aiOn ? ` · AI <b>${v.anthropicCalls || 0}</b> calls` : "";
+    $("#vitals-bar").innerHTML = `<b>${v.processed || 0}</b> in · <b>${v.applied || 0}</b> applied · <b>${v.blocked || 0}</b> blocked${quota}${ai}`;
     // authoritative callout tray (survives reloads; shared between mods)
     awaiting = new Map((st.scAwait || []).filter((e) => e.comment?.id).map((e) => [e.comment.id, e]));
     renderTray();
@@ -1002,7 +1005,9 @@
     });
   })();
   const starRow = (a) => `<span class="stars" data-id="${esc(a.id)}">${[1, 2, 3].map((n) => `<b class="${n <= a.stars ? "on" : ""}" data-n="${n}">★</b>`).join("")}</span>`;
+  let libEditing = false; // a title is being renamed → don't let the auto-refresh re-render under it
   async function loadLibrary() {
+    if (libEditing) return;
     const r = await api("/admin/assets").catch(() => null);
     if (!r?.ok || rtab !== "library") return;
     let assets = r.assets || [];
@@ -1011,7 +1016,7 @@
       <div class="asset" data-id="${esc(a.id)}">
         ${a.screenshot ? `<img src="data:image/png;base64,${a.screenshot}" alt="">` : `<div class="kbadge" style="width:94px;height:60px;display:flex;align-items:center;justify-content:center;flex:0 0 auto">${esc(a.kind)}</div>`}
         <div class="am">
-          <div class="al"><span class="alt">${esc(a.label || "card")}</span><span class="kbadge">${esc(a.kind)}</span></div>
+          <div class="al"><span class="alt" data-rid="${esc(a.id)}" title="click to rename">${esc(a.label || "card")}</span><span class="kbadge">${esc(a.kind)}</span></div>
           <div class="as">by ${esc(a.who || "?")} · ${a.usedCount || 1}× · ${starRow(a)}</div>
           <div class="arow">
             <button class="reuse" data-reuse="${esc(a.id)}" title="re-air this card now">reuse</button>
@@ -1027,7 +1032,37 @@
     document.querySelectorAll("#lib-bar [data-lfav]").forEach((x) => x.classList.toggle("active", x === b));
     loadLibrary();
   });
+  // click a card title → edit in place; Enter or click-away saves, Esc cancels
+  function beginRename(alt) {
+    if (alt.isContentEditable) return;
+    const id = alt.dataset.rid, original = alt.textContent;
+    libEditing = true;
+    alt.classList.add("editing");
+    alt.contentEditable = "true";
+    alt.focus();
+    const range = document.createRange(); range.selectNodeContents(alt);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    let done = false;
+    const finish = async (save) => {
+      if (done) return; done = true;
+      alt.contentEditable = "false";
+      alt.classList.remove("editing");
+      libEditing = false;
+      const next = alt.textContent.trim().replace(/\s+/g, " ").slice(0, 60);
+      if (save && next && next !== original) {
+        const r = await api("/admin/assets", { id, label: next }).catch(() => null);
+        if (r?.ok) { alt.textContent = r.label; toast("renamed"); } else { alt.textContent = original; toast("rename failed"); }
+      } else { alt.textContent = original; }
+    };
+    alt.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); alt.blur(); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); alt.blur(); }
+    });
+    alt.addEventListener("blur", () => finish(true), { once: true });
+  }
   $("#lib-list").addEventListener("click", async (ev) => {
+    const alt = ev.target.closest(".alt");
+    if (alt) { beginRename(alt); return; }
     const star = ev.target.closest(".stars b");
     if (star) {
       const id = star.parentElement.dataset.id;

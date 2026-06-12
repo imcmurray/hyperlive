@@ -21,6 +21,7 @@ import { getFeature, setActiveFeatures } from "./features.js";
 import { loadAssets } from "./assets.js";
 import { startAdmin, publishFeed, enqueuePending, previewMarkup, setVitalsProvider, setReplayHandler } from "./admin.js";
 import { unitsSpent } from "./quota.js";
+import { anthropicCalls_ } from "./usage.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
 import { youtubeSource } from "./youtube.js";
 import { createStreamLikes } from "./stream-likes.js";
@@ -276,6 +277,8 @@ async function main() {
     quotaUnits: unitsSpent(),
     quotaLimit: config.yt.quotaLimit,
     source: config.source,
+    anthropicCalls: anthropicCalls_(),
+    aiOn: !!config.anthropicKey,
   }));
   // dashboard replay: mod overrides a cooldown skip — intent re-runs and the
   // result lands in the feed through the normal audit path

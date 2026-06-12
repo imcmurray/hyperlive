@@ -116,6 +116,16 @@ export async function setStars(id, n) {
   return { ok: true, stars: a.stars };
 }
 
+// operator-renamed library label. Empty → re-derive from the markup so a card
+// is never left blank in the library.
+export async function setLabel(id, label) {
+  const a = assets.find((x) => x.id === id);
+  if (!a) return { ok: false, error: "unknown asset" };
+  a.label = (String(label || "").replace(/\s+/g, " ").trim().slice(0, 60)) || deriveLabel(a.html);
+  await persist();
+  return { ok: true, label: a.label };
+}
+
 export async function removeAsset(id) {
   const i = assets.findIndex((a) => a.id === id);
   if (i < 0) return { ok: false, error: "unknown asset" };

@@ -6,6 +6,7 @@
 // sandboxed iframe (no scripts, CSP default-src 'none') with a TTL.
 
 import { config } from "./config.js";
+import { bumpAnthropic } from "./usage.js";
 
 const SYSTEM = `You write a single small HTML fragment for a 360x250 pixel "viewer card" shown on a live stream.
 A viewer described what they want; build the closest tasteful version with pure HTML + inline CSS.
@@ -23,6 +24,7 @@ Output ONLY the HTML fragment — no markdown fences, no commentary.`;
 export async function authorCard(description, who) {
   if (!config.anthropicKey) return null;
   try {
+    bumpAnthropic();
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       signal: AbortSignal.timeout(25000), // authoring is slower than classification

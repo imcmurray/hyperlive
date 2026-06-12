@@ -7,6 +7,7 @@
 // returned with a reason so the caller can audit-log the decision.
 
 import { config } from "./config.js";
+import { bumpAnthropic } from "./usage.js";
 
 // Starter blocklist. A real deployment should load a maintained list from a
 // file (slurs, brand-unsafe terms, scam patterns) — this is intentionally
@@ -50,6 +51,7 @@ export function createModerator() {
     // Cheap Haiku classifier. Returns { block, reason }. Fails OPEN-to-block on
     // error (when uncertain, drop — safer for a public broadcast).
     try {
+      bumpAnthropic();
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         // comments are handled serially — never let one hung connection stall

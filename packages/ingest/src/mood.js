@@ -10,6 +10,7 @@
 
 import { config } from "./config.js";
 import { getFeature } from "./features.js";
+import { bumpAnthropic } from "./usage.js";
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const pick = (a) => a[(Math.random() * a.length) | 0];
@@ -89,6 +90,7 @@ Keep it tasteful and drifting — small moves from the current mood. Map hype→
 
 async function llmMood(snap, last) {
   try {
+    bumpAnthropic();
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       signal: AbortSignal.timeout(8000), // a hung call would freeze the mood loop
