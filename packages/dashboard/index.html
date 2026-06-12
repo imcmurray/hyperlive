@@ -350,9 +350,20 @@
     margin: 10px; border: 1px solid #4a3c14; background: #161204; border-radius: 4px;
     overflow: hidden; animation: land .4s ease-out;
   }
-  .pending-item .ph { padding: 7px 10px; display: flex; justify-content: space-between; font-size: 11px; color: var(--amber); letter-spacing: .08em; }
+  .pending-item .ph { padding: 7px 10px; display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 11px; color: var(--amber); letter-spacing: .06em; }
+  .pending-item .ph small { color: #8a7a4a; letter-spacing: 0; }
   .pending-item img { display: block; width: 100%; background: #000; border-block: 1px solid #3a2f10; }
   .pending-item .req { padding: 6px 10px; color: var(--dim); font-size: 11px; }
+  /* per-item view ⇄ edit toggle */
+  .pe-toggle { display: inline-flex; flex: 0 0 auto; border: 1px solid #4a3c14; border-radius: 10px; overflow: hidden; cursor: pointer; }
+  .pe-toggle .seg { padding: 2px 9px; font: 700 9px var(--mono); color: #8a7a4a; letter-spacing: .06em; }
+  .pe-toggle .seg.active { background: var(--amber); color: #120a02; }
+  .pending-item .pe-edit { display: none; padding: 8px 10px; }
+  .pending-item.editing .pe-prev { display: none; }
+  .pending-item.editing .pe-edit { display: block; }
+  .pe-edit textarea { width: 100%; height: 150px; background: #0c0f0c; border: 1px solid var(--line); color: var(--txt); font: 11px var(--mono); padding: 7px; border-radius: 3px; resize: vertical; }
+  .pe-edit .pe-repreview { width: 100%; margin-top: 6px; padding: 7px 0; border: 1px solid #234c4c; background: #0c1a1a; color: var(--cyan); border-radius: 3px; cursor: pointer; font: 700 10px var(--mono); letter-spacing: .1em; }
+  .pe-edit .pe-repreview:hover { background: #102a2a; }
   .pending-item .vv { padding: 0 10px 6px; font-size: 11px; }
   .pending-item .row-btns { display: flex; }
   .row-btns button {
@@ -772,6 +783,7 @@
 
   // ---- state poll: health LEDs, bans, pending ----
   let rtab = "review", libFav = "all"; // right-panel tab + library filter (used by refresh)
+  const pendEdit = new Set();          // pending ids currently in edit-in-place mode
   async function refresh() {
     let st;
     try { st = await api("/admin/state"); } catch { return; }
@@ -807,14 +819,28 @@
     }).join("") || `<div id="none-pending">— NO BANS —</div>`;
 
     const pend = st.pending || [];
-    $("#pending").innerHTML = pend.length ? pend.map((p) => `
+    // don't rebuild while a card is being edited in place — it would wipe the
+    // textarea + focus. Edits are saved server-side on RE-PREVIEW; the queue
+    // resumes refreshing once you toggle back to view (or approve/reject).
+    if (pendEdit.size === 0) {
+      $("#pending").innerHTML = pend.length ? pend.map((p) => `
       <div class="pending-item" data-id="${esc(p.id)}">
-        <div class="ph"><span>${esc(p.kind.toUpperCase())} · ${esc(p.who)}</span><span>${new Date(p.ts).toLocaleTimeString()}</span></div>
-        ${p.screenshot ? `<img src="data:image/png;base64,${p.screenshot}" alt="pre-render">` : ""}
-        <div class="req">${esc(p.request || "")}</div>
-        ${p.vision ? `<div class="vv" style="color:${p.vision.safe ? "var(--green)" : "var(--red)"}">vision: ${p.vision.safe ? "safe" : "UNSAFE"} ${esc(p.vision.reason || "")}</div>` : ""}
+        <div class="ph">
+          <span>${esc(p.kind.toUpperCase())} · by <b>${esc(p.who)}</b> · <small>${new Date(p.ts).toLocaleTimeString()}</small></span>
+          <span class="pe-toggle" data-petoggle><b class="seg sv active">view</b><b class="seg se">edit</b></span>
+        </div>
+        <div class="pe-prev">
+          ${p.screenshot ? `<img src="data:image/png;base64,${p.screenshot}" alt="pre-render">` : ""}
+          <div class="req">${esc(p.request || "")}</div>
+          ${p.vision ? `<div class="vv" style="color:${p.vision.safe ? "var(--green)" : "var(--red)"}">vision: ${p.vision.safe ? "safe" : "UNSAFE"} ${esc(p.vision.reason || "")}</div>` : ""}
+        </div>
+        <div class="pe-edit">
+          <textarea class="pe-html" spellcheck="false">${esc(p.html || "")}</textarea>
+          <button class="pe-repreview">RE-PREVIEW (apply edit)</button>
+        </div>
         <div class="row-btns"><button class="approve">▶ AIR IT</button><button class="reject">✕ REJECT</button></div>
       </div>`).join("") : `<div id="none-pending">— QUEUE EMPTY —</div>`;
+    }
 
     // right-panel tab badges + live-refresh the library when it's open
     $("#rt-review-n").textContent = pend.length ? `(${pend.length})` : "";
@@ -881,12 +907,37 @@
   // otherwise hold the load event hostage and spin the tab forever)
   if (location.hash === "#live") window.addEventListener("load", () => setTimeout(openLive, 50));
 
-  $("#pending").addEventListener("click", (ev) => {
+  $("#pending").addEventListener("click", async (ev) => {
     const item = ev.target.closest(".pending-item");
     if (!item) return;
     const id = item.dataset.id;
-    if (ev.target.closest(".approve")) api(`/admin/pending/${id}`, { action: "approve" }).then((r) => { toast(r.ok ? "ON AIR" : `air failed: ${r.error || "?"}`); refresh(); });
-    if (ev.target.closest(".reject")) api(`/admin/pending/${id}`, { action: "reject" }).then(() => { toast("rejected"); refresh(); });
+    // view ⇄ edit toggle (per card)
+    const tog = ev.target.closest(".pe-toggle");
+    if (tog) {
+      const toEdit = ev.target.classList.contains("se") ? true
+        : ev.target.classList.contains("sv") ? false : !item.classList.contains("editing");
+      item.classList.toggle("editing", toEdit);
+      tog.querySelector(".sv").classList.toggle("active", !toEdit);
+      tog.querySelector(".se").classList.toggle("active", toEdit);
+      if (toEdit) { pendEdit.add(id); item.querySelector(".pe-html").focus(); } else pendEdit.delete(id);
+      return;
+    }
+    // re-render the edited markup off-air and update this card's thumbnail
+    const rp = ev.target.closest(".pe-repreview");
+    if (rp) {
+      const html = item.querySelector(".pe-html").value;
+      rp.disabled = true; const label = rp.textContent; rp.textContent = "rendering…";
+      const r = await api(`/admin/pending/${id}/update`, { html }).catch(() => ({ ok: false }));
+      rp.disabled = false; rp.textContent = label;
+      if (!r.ok) return toast(`preview failed: ${r.error || "?"}`);
+      let img = item.querySelector(".pe-prev img");
+      if (!img) { img = document.createElement("img"); item.querySelector(".pe-prev").prepend(img); }
+      if (r.screenshot) img.src = "data:image/png;base64," + r.screenshot;
+      toast("re-rendered — toggle to view, or AIR IT");
+      return;
+    }
+    if (ev.target.closest(".approve")) { pendEdit.delete(id); api(`/admin/pending/${id}`, { action: "approve" }).then((r) => { toast(r.ok ? "ON AIR" : `air failed: ${r.error || "?"}`); refresh(); }); }
+    if (ev.target.closest(".reject")) { pendEdit.delete(id); api(`/admin/pending/${id}`, { action: "reject" }).then(() => { toast("rejected"); refresh(); }); }
   });
 
   // ---- ASSET LIBRARY: previously-aired cards, reusable + star-rated ----
@@ -911,7 +962,7 @@
         ${a.screenshot ? `<img src="data:image/png;base64,${a.screenshot}" alt="">` : `<div class="kbadge" style="width:94px;height:60px;display:flex;align-items:center;justify-content:center;flex:0 0 auto">${esc(a.kind)}</div>`}
         <div class="am">
           <div class="al"><span class="alt">${esc(a.label || "card")}</span><span class="kbadge">${esc(a.kind)}</span></div>
-          <div class="as">${esc(a.who || "")} · ${a.usedCount || 1}× · ${starRow(a)}</div>
+          <div class="as">by ${esc(a.who || "?")} · ${a.usedCount || 1}× · ${starRow(a)}</div>
           <div class="arow">
             <button class="reuse" data-reuse="${esc(a.id)}" title="re-air this card now">reuse</button>
             <button class="tweak" data-tweak="${esc(a.id)}" title="load into compose to edit">tweak</button>

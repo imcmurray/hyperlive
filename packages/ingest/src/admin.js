@@ -418,6 +418,21 @@ export function startAdmin({ log = console.log } = {}) {
         return json(res, 200, { ok: true, user: { ...userSummary(u), events: u.events } });
       }
 
+      // edit a queued card in place: re-render the new markup off-air and update
+      // this item's html + thumbnail + vision (so AIR IT airs the edited version)
+      if (req.method === "POST" && /^\/admin\/pending\/[\w-]+\/update$/.test(url.pathname)) {
+        const id = url.pathname.split("/")[3];
+        const item = pending.get(id);
+        if (!item) return json(res, 404, { ok: false, error: "no such pending item" });
+        const b = await readJson(req);
+        const html = String(b.html || "");
+        if (!html.trim()) return json(res, 400, { ok: false, error: "html required" });
+        const pv = await previewMarkup(item.kind, html, item.who);
+        if (!pv.ok) return json(res, 422, { ok: false, error: pv.error || `preview failed (${pv.status})` });
+        item.html = html; item.screenshot = pv.screenshot; item.vision = pv.vision;
+        return json(res, 200, { ok: true, screenshot: pv.screenshot, vision: pv.vision });
+      }
+
       if (req.method === "POST" && /^\/admin\/pending\/[\w-]+$/.test(url.pathname)) {
         const id = url.pathname.split("/").pop();
         const item = pending.get(id);
