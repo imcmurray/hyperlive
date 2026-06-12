@@ -7,9 +7,14 @@
 // the same markup again just bumps its use count. Persisted to state/assets.json.
 
 import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { saveJson } from "./state.js";
 
 const FILE = process.env.ASSETS_FILE || "./state/assets.json";
+// starter examples shipped with the repo — loaded on a fresh install so the
+// library isn't empty out of the box (then it's a normal mutable library)
+const SEED = process.env.ASSETS_SEED || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../examples/assets.seed.json");
 const MAX = 40;          // cap; evict lowest-star, then least-recently-used
 const MAX_STARS = 3;
 
@@ -26,13 +31,28 @@ function hash(s) {
 
 export async function loadAssets() {
   assets = [];
+  let haveFile = false;
   try {
     const j = JSON.parse(await readFile(FILE, "utf8"));
-    if (Array.isArray(j?.assets)) {
-      assets = j.assets.filter((a) => a && a.html && a.kind);
-      seq = assets.reduce((m, a) => Math.max(m, Number(String(a.id).replace(/\D/g, "")) || 0), 0);
-    }
-  } catch { /* none yet */ }
+    haveFile = true; // the file exists — respect it even if the user emptied it
+    if (Array.isArray(j?.assets)) assets = j.assets.filter((a) => a && a.html && a.kind);
+  } catch { /* no saved file yet */ }
+  // fresh install (no saved file) → seed the shipped starter examples
+  if (!haveFile) {
+    try {
+      const seed = JSON.parse(await readFile(SEED, "utf8"));
+      if (Array.isArray(seed?.assets)) {
+        const now = Date.now();
+        assets = seed.assets.filter((a) => a && a.html && a.kind).map((a, i) => ({
+          ...a, id: `a${i + 1}`,
+          stars: Math.max(0, Math.min(MAX_STARS, Number(a.stars) || 0)),
+          usedCount: 1, ts: now - (seed.assets.length - i), usedAt: now - (seed.assets.length - i),
+        }));
+        await persist(); // write them to state so edits/stars stick from here on
+      }
+    } catch { /* no seed file — empty library */ }
+  }
+  seq = assets.reduce((m, a) => Math.max(m, Number(String(a.id).replace(/\D/g, "")) || 0), 0);
   return assets.length;
 }
 

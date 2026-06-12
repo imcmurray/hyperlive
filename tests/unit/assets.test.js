@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 process.env.ASSETS_FILE = path.join(await mkdtemp(path.join(tmpdir(), "hl-assets-")), "assets.json");
+process.env.ASSETS_SEED = "/nonexistent-no-seed-in-tests.json"; // start empty, not from the shipped examples
 const { loadAssets, captureAsset, listAssets, getAsset, setStars, removeAsset, markUsed } =
   await import("../../packages/ingest/src/assets.js");
 
@@ -52,4 +53,14 @@ test("markUsed bumps usage + recency", async () => {
 
 test("capture ignores empty markup", async () => {
   assert.equal(await captureAsset({ kind: "card", html: "" }), null);
+});
+
+test("the shipped starter-example seed file is valid", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const seed = JSON.parse(await readFile("packages/ingest/examples/assets.seed.json", "utf8"));
+  assert.ok(Array.isArray(seed.assets) && seed.assets.length >= 5, "has example assets");
+  for (const a of seed.assets) {
+    assert.ok(a.html && a.kind && a.label, "each example has html/kind/label");
+    assert.ok(["card", "takeover"].includes(a.kind));
+  }
 });
