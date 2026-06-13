@@ -18,6 +18,10 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
+import { saveJson } from "./state.js";
+import { getAccessToken } from "./youtube-auth.js";
+import { discoverActiveBroadcast } from "./youtube.js";
+import { bill, unitsSpent } from "./quota.js";
 import { ban, unban, mute, unmute, listBans, listMutes, isBanned, isMuted } from "./bans.js";
 import { listAutomations, setAutomation, addCustom, updateCustom, buildPreviewDirectives } from "./automations.js";
 import { listStages, getStage, addStage, updateStage, removeStage, setActive, buildApplyDirectives, setTitleDefault, featuresOf, sourceKey } from "./stages.js";
@@ -74,6 +78,40 @@ const USER_STAGES = new Set([
 const USER_MOD_STAGES = new Set(["banned_by_mod", "muted_by_mod", "unbanned", "unmuted"]);
 const USERS_MAX = 500, USER_EVENTS_MAX = 50;
 const users = new Map(); // author(lower) → profile
+// how long after an author's FIRST event their feed rows stay flagged "new" —
+// long enough for the host to spot and call them out, short enough that a
+// regular doesn't wear the badge all stream
+export const NEW_USER_WINDOW_MS = 5 * 60 * 1000;
+
+// ---- persisted first-seen ledger: author(lower) → first-seen ms ------------
+// Keeps the NEW badge honest across ingest restarts: without it, a mid-stream
+// restart would re-flag every regular as a first-timer. The full profiles stay
+// session-scoped (they hold event history); only the first-seen time survives.
+const FIRST_SEEN_FILE = process.env.FIRST_SEEN_FILE || "./state/first-seen.json";
+const FIRST_SEEN_MAX = 5000; // oldest entries evicted past this
+const firstSeen = new Map(); // author(lower) → ms
+let firstSeenTimer = null;
+export async function loadFirstSeen() {
+  try {
+    const j = JSON.parse(await readFile(FIRST_SEEN_FILE, "utf8"));
+    for (const [k, v] of Object.entries(j || {})) if (Number.isFinite(v)) firstSeen.set(k, v);
+  } catch { /* none yet */ }
+  return firstSeen.size;
+}
+function recordFirstSeen(k, ms) {
+  firstSeen.set(k, ms);
+  if (firstSeen.size > FIRST_SEEN_MAX) {
+    // evict the oldest tenth in one pass (sorting 5k entries every comment would hurt)
+    const sorted = [...firstSeen.entries()].sort((a, b) => a[1] - b[1]);
+    for (const [kk] of sorted.slice(0, Math.ceil(FIRST_SEEN_MAX / 10))) firstSeen.delete(kk);
+  }
+  // debounced write — new-author bursts at stream start become one save
+  clearTimeout(firstSeenTimer);
+  firstSeenTimer = setTimeout(() => {
+    saveJson(FIRST_SEEN_FILE, Object.fromEntries(firstSeen)).catch(() => { /* non-fatal */ });
+  }, 3000);
+  firstSeenTimer.unref?.(); // never keep the process alive for a pending save
+}
 
 function trackUser(evt) {
   const c = evt.comment;
@@ -89,9 +127,16 @@ function trackUser(evt) {
   if (!USER_STAGES.has(evt.stage)) return;
   let u = users.get(k);
   if (!u) {
-    u = { author: c.author, channelId: "", avatar: "", first: evt.t, msgs: 0, stages: {}, superchats: 0, events: [] };
+    // the persisted ledger wins: an author from a previous stream (or from
+    // before a mid-stream restart) is NOT a first-timer
+    const firstMs = firstSeen.get(k) || Date.parse(evt.t) || Date.now();
+    if (!firstSeen.has(k)) recordFirstSeen(k, firstMs);
+    u = { author: c.author, channelId: "", avatar: "", first: new Date(firstMs).toISOString(), msgs: 0, stages: {}, superchats: 0, events: [] };
     users.set(k, u);
   }
+  // first appearance ever (+ grace window) → the dashboard tints the row so
+  // the host can welcome them
+  if (Date.now() - (Date.parse(u.first) || 0) < NEW_USER_WINDOW_MS) evt.newUser = true;
   if (c.channelId) u.channelId = c.channelId;
   if (c.avatar) u.avatar = c.avatar;
   if (evt.stage === "superchat") u.superchats++; // counted once per paid message (the recognition event)
@@ -208,6 +253,156 @@ export function startAdmin({ log = console.log } = {}) {
           features: activeFeatures(),
           assetCount: listAssets().length,
         });
+      }
+
+      // ---- preflight: pre-stream go/no-go checks, run on demand from the
+      // dashboard's entry modal. Verifies the whole chain end to end: streamer
+      // up → OAuth refresh token actually mints a token → a live/ready broadcast
+      // exists → its live chat is readable → YouTube is actually RECEIVING our
+      // encoder on the bound stream + the .env key matches → Anthropic key valid
+      // → quota room. Costs a few quota units per run (real API calls — the point).
+      if (route === "POST /admin/preflight") {
+        const checks = [];
+        const add = (name, status, detail) => checks.push({ name, status, detail });
+
+        // 1. streamer control plane (scene + encoder)
+        const health = await proxyGet(`${config.controlBase}/health`);
+        if (!health) {
+          add("streamer", "fail", `no response from ${config.controlBase} — is the streamer container up? (live.sh start)`);
+        } else {
+          add("scene", health.sceneReady ? "ok" : "fail", health.sceneReady ? `ready · show ${health.showState || "?"}` : "scene page not ready");
+          add("encoder", health.ffmpegUp ? "ok" : health.dryRun ? "warn" : "fail",
+            health.ffmpegUp ? `ffmpeg up → ${health.ingest || "?"}${health.ffmpegRestarts ? ` (${health.ffmpegRestarts} restarts)` : ""}`
+              : health.dryRun ? "dry-run — rendering but not pushing RTMP"
+              : "ffmpeg DOWN — nothing is reaching YouTube");
+        }
+
+        // 2. YouTube: auth → broadcast → chat feed (youtube source only)
+        if (config.source !== "youtube") {
+          add("youtube", "skip", `source=${config.source} — chat comes from the simulator, no YouTube checks`);
+        } else if (!config.yt.clientId || !config.yt.clientSecret || !config.yt.refreshToken) {
+          add("youtube auth", "fail", "missing YT_CLIENT_ID / YT_CLIENT_SECRET / YT_REFRESH_TOKEN in .env — run: node packages/ingest/src/youtube-auth.js");
+        } else {
+          let token = "";
+          try {
+            // force=true does a REAL refresh — proves the refresh token still works
+            token = await getAccessToken(true);
+            add("youtube auth", "ok", "refresh token valid — access token minted");
+          } catch (e) {
+            add("youtube auth", "fail", `token refresh failed: ${e.message} — re-run: node packages/ingest/src/youtube-auth.js, paste the new YT_REFRESH_TOKEN into .env, restart the ingest`);
+          }
+          if (token) {
+            try {
+              // recognizes a READY/TESTING broadcast (bound, chat open, waiting)
+              // as well as a LIVE one — same discovery the poller uses
+              const b = await discoverActiveBroadcast(token);
+              const live = b.status === "live";
+              if (!b.id) {
+                add("broadcast", "warn", "no live or ready broadcast — create one in YouTube Studio (it's picked up the moment chat opens, before Go Live)");
+              } else if (live) {
+                add("broadcast", "ok", `🔴 LIVE — on air now (video ${b.id})`);
+              } else {
+                // set up and waiting — a pass for preflight purposes (everything
+                // is in place; the operator just hasn't pressed Go Live yet)
+                add("broadcast", "ok", `${(b.status || "ready").toUpperCase()} — set up & waiting; press GO LIVE in Studio to go on air (video ${b.id})`);
+              }
+              if (b.id) {
+                if (!b.liveChatId) {
+                  add("chat feed", "fail", "broadcast has no liveChatId — is chat enabled on the stream?");
+                } else {
+                  // one real liveChatMessages.list page — the same call the
+                  // poller makes (chat is readable in ready/testing too), so a
+                  // pass here means chat WILL flow
+                  const cu = new URL("https://www.googleapis.com/youtube/v3/liveChat/messages");
+                  cu.searchParams.set("liveChatId", b.liveChatId);
+                  cu.searchParams.set("part", "snippet");
+                  const cr = await fetch(cu, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) });
+                  await bill(config.yt.unitsPerCall || 5);
+                  add("chat feed", cr.ok ? "ok" : "fail",
+                    cr.ok ? (live ? "live chat readable — comments are flowing" : "chat readable — early comments will be picked up before Go Live")
+                      : `liveChatMessages http ${cr.status}`);
+                }
+
+                // RTMP ingestion: is YouTube actually RECEIVING our encoder, on
+                // the stream THIS broadcast is bound to? ("ffmpeg up" only means
+                // our process runs — it can't see whether the bytes land, or
+                // whether .env points at the same stream the broadcast expects.)
+                try {
+                  const bd = new URL("https://www.googleapis.com/youtube/v3/liveBroadcasts");
+                  bd.searchParams.set("part", "contentDetails"); bd.searchParams.set("id", b.id);
+                  const bdr = await fetch(bd, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) });
+                  await bill(1);
+                  const boundStreamId = (await bdr.json()).items?.[0]?.contentDetails?.boundStreamId || "";
+                  if (!boundStreamId) {
+                    add("rtmp ingestion", "fail", "broadcast isn't bound to a stream — bind a stream key in YouTube Studio");
+                  } else {
+                    const sd = new URL("https://www.googleapis.com/youtube/v3/liveStreams");
+                    sd.searchParams.set("part", "status,cdn"); sd.searchParams.set("id", boundStreamId);
+                    const sdr = await fetch(sd, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) });
+                    await bill(1);
+                    const stream = (await sdr.json()).items?.[0];
+                    const ss = stream?.status?.streamStatus, hh = stream?.status?.healthStatus?.status;
+                    const boundKey = stream?.cdn?.ingestionInfo?.streamName || "";
+                    const tail = (k) => "…" + String(k).slice(-4);
+                    if (ss === "active") {
+                      add("rtmp ingestion", hh === "bad" ? "warn" : "ok",
+                        `YouTube IS receiving the encoder (stream ${ss} · health ${hh || "?"})` + (live ? "" : " — but parked at READY; press GO LIVE in Studio to put it on air"));
+                    } else {
+                      add("rtmp ingestion", "fail",
+                        `YouTube is NOT receiving data (stream ${ss || "unknown"}) — the encoder isn't reaching this broadcast's stream. Check the streamer (live.sh status) and the key below.`);
+                    }
+                    // key match: are we pushing where this broadcast listens?
+                    const envKey = process.env.YT_STREAM_KEY || "";
+                    if (!envKey) add("stream key", "warn", "YT_STREAM_KEY not set in .env — can't confirm we're feeding this broadcast's stream");
+                    else if (!boundKey) add("stream key", "warn", "couldn't read the bound stream's key to compare");
+                    else add("stream key", envKey === boundKey ? "ok" : "fail",
+                      envKey === boundKey ? `.env key matches the bound stream (${tail(boundKey)})`
+                        : `MISMATCH — .env pushes ${tail(envKey)} but this broadcast is bound to ${tail(boundKey)}. You're feeding a different stream; point YT_STREAM_KEY at this broadcast's key (or go live on the broadcast bound to ${tail(envKey)}), then restart.`);
+                  }
+                } catch (e) {
+                  add("rtmp ingestion", "warn", `couldn't verify ingestion: ${e.message}`);
+                }
+              }
+            } catch (e) {
+              add("broadcast", "fail", `broadcast discovery failed: ${e.message}`);
+            }
+          }
+          const spent = unitsSpent();
+          add("quota", spent < config.yt.quotaLimit * 0.8 ? "ok" : spent < config.yt.quotaLimit ? "warn" : "fail",
+            `${spent}/${config.yt.quotaLimit} units spent today (resets midnight Pacific)`);
+        }
+
+        // 3. Anthropic key (director / moderation / card authoring / vision gate)
+        if (!config.anthropicKey) {
+          add("anthropic", "warn", "no ANTHROPIC_API_KEY — AI layer off (rules director, no !card authoring, no vision gate)");
+        } else {
+          try {
+            // GET /v1/models is free and authenticated — a cheap key check
+            const ar = await fetch("https://api.anthropic.com/v1/models?limit=1", {
+              headers: { "x-api-key": config.anthropicKey, "anthropic-version": "2023-06-01" },
+              signal: AbortSignal.timeout(8000),
+            });
+            add("anthropic", ar.ok ? "ok" : "fail", ar.ok ? "API key valid" : ar.status === 401 ? "API key REJECTED (401) — check ANTHROPIC_API_KEY in .env" : `models endpoint http ${ar.status}`);
+          } catch (e) {
+            add("anthropic", "fail", `unreachable: ${e.message}`);
+          }
+        }
+
+        // read-only config summary for the modal (env-driven — changing these
+        // means editing .env and restarting via live.sh, not this dashboard)
+        const summary = {
+          source: config.source,
+          director: config.director,
+          moderationLLM: config.moderationLLM,
+          holdCards: config.holdCards,
+          music: config.music,
+          cards: config.cards,
+          votes: config.votes,
+          audioMode: health?.audioMode,
+          dryRun: health?.dryRun,
+        };
+        publishFeed({ stage: "show_control", comment: { author: "operator", text: `preflight: ${checks.filter((c) => c.status === "fail").length ? "FAIL" : "pass"}` } });
+        return json(res, 200, { ok: true, checks, summary });
       }
 
       // host clicked the ★ — this superchat has been called out on stream
@@ -417,6 +612,24 @@ export function startAdmin({ log = console.log } = {}) {
         if (b.preview !== true) { await setActive(stage.id); setActiveFeatures(featuresOf(stage)); }
         publishFeed({ stage: "stage_source", comment: { author: "operator", text: `${b.preview ? "preview" : "→ STAGE"}: ${stage.label}` } });
         return json(res, 200, { ok: true, applied: stage.id, fired: fired.join("+"), offair: b.preview === true });
+      }
+
+      // mod clicked a NEW badge: put a small welcome card on stage so the
+      // newcomer gets called out even when the host is mid-flow. Same vetted
+      // addShoutout action the director and automations use — no new surface.
+      if (route === "POST /admin/callout") {
+        const b = await readJson(req);
+        const author = String(b.author || "").slice(0, 60).trim();
+        if (!author) return json(res, 400, { ok: false, error: "author required" });
+        const params = { tier: "small", who: author, text: "welcome to the stream! 👋" };
+        if (typeof b.avatar === "string" && b.avatar) params.avatar = b.avatar.slice(0, 2048);
+        const out = await fetch(`${config.controlBase}/mutate`, {
+          method: "POST", signal: AbortSignal.timeout(8000),
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "addShoutout", params }),
+        }).then((r) => r.json()).catch((e) => ({ ok: false, error: e.message }));
+        if (out.ok !== false) publishFeed({ stage: "automation", comment: { author: "operator", text: `welcome callout → ${author}` } });
+        return json(res, out.ok === false ? 502 : 200, out.ok === false ? out : { ok: true });
       }
 
       // ---- user directory: everyone who has interacted this session ----

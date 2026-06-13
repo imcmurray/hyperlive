@@ -53,11 +53,22 @@
   }
   .led.on i  { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2.2s infinite; }
   .led.bad i { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+  .led.warn i { background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse 1.2s infinite; }
   @keyframes pulse { 50% { opacity: .55; } }
   .spacer { flex: 1; }
+  /* stream stats: viewers / subs / uptime — the at-a-glance numbers */
+  #stream-stats { color: var(--dim); font-size: 11px; letter-spacing: .06em; white-space: nowrap; }
+  #stream-stats b { color: #cfe8cf; font-weight: 700; }
+  #stream-stats .up b { color: var(--green); font-variant-numeric: tabular-nums; }
   #vitals-bar { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
   #vitals-bar b { color: var(--txt); font-weight: 400; }
   #clock { color: var(--dim); letter-spacing: .12em; font-size: 12px; }
+  #preflight-btn {
+    font: 700 10px var(--mono); letter-spacing: .1em;
+    color: var(--dim); background: #0c0f0c; border: 1px solid #283228;
+    padding: 6px 10px; cursor: pointer; border-radius: 3px;
+  }
+  #preflight-btn:hover { color: var(--green); border-color: #234c32; }
   /* guarded kill switch */
   #kill {
     font: 700 11px var(--mono); letter-spacing: .14em;
@@ -198,7 +209,20 @@
   .btn.danger { color: #f1b8b8; border-color: #532222; background: #170d0d; }
   .btn.danger:hover { background: #2a1010; }
 
-  /* superchat rows glow gold in the feed */
+  /* new-user rows glow blue in the feed — first appearance this session
+     (+ a short grace window) so the host can spot and welcome them */
+  .row.nu { background: linear-gradient(90deg, rgba(96, 165, 250, 0.10), transparent 65%); box-shadow: inset 2px 0 0 #60a5fa; }
+  .newb {
+    font-size: 9px; font-weight: 700; letter-spacing: .1em;
+    color: #93c5fd; border: 1px solid #1d4ed8; background: #0a1530;
+    padding: 1px 5px; border-radius: 2px; margin-left: 6px;
+  }
+  /* still callout-able → clickable; after the click it turns into a plain ✓ */
+  .newb[data-callout] { cursor: pointer; }
+  .newb[data-callout]:hover { background: #14275c; color: #dbeafe; }
+  .newb[data-callout]:hover::after { content: " 👋"; }
+  /* superchat rows glow gold in the feed (declared after .nu so gold wins
+     when a newcomer's very first message is a superchat) */
   .row.sc { background: linear-gradient(90deg, rgba(251, 191, 36, 0.09), transparent 65%); box-shadow: inset 2px 0 0 #ffd34d; }
   .scamt { color: #ffd34d; font-weight: 700; margin-right: 8px; white-space: nowrap; }
   .c-sc { color: #ffd34d; border-color: #6b5410; background: #241a04; }
@@ -424,6 +448,39 @@
     background: #162016; border: 1px solid var(--line); color: var(--txt);
     padding: 8px 16px; border-radius: 4px; font-size: 12px; display: none; z-index: 100;
   }
+
+  /* ---- preflight modal: pre-stream go/no-go at console entry ---- */
+  #pf-modal {
+    position: fixed; inset: 0; z-index: 300; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(2, 4, 2, 0.88);
+  }
+  #pf-modal[data-open="true"] { display: flex; }
+  #pf-box {
+    width: min(560px, 92vw); max-height: 86vh; overflow-y: auto;
+    background: var(--panel); border: 1px solid #2c3c2c; border-radius: 6px;
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7);
+  }
+  #pf-box h1 { font-size: 12px; letter-spacing: .24em; color: #cfe8cf; padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+  #pf-box h1 small { color: var(--dim); letter-spacing: .06em; font-weight: 400; display: block; margin-top: 4px; font-size: 10px; }
+  #pf-checks { padding: 8px 0; }
+  .pf-row { display: grid; grid-template-columns: 26px 110px 1fr; gap: 10px; padding: 8px 16px; align-items: baseline; border-bottom: 1px solid #131913; }
+  .pf-row .pfi { font-size: 13px; text-align: center; }
+  .pf-row .pfn { font-size: 11px; letter-spacing: .12em; color: #cfe8cf; text-transform: uppercase; }
+  .pf-row .pfd { font-size: 11px; color: var(--dim); line-height: 1.5; word-break: break-word; }
+  .pf-row.ok .pfi { color: var(--green); }
+  .pf-row.warn .pfi { color: var(--amber); }
+  .pf-row.warn .pfd { color: #c9b486; }
+  .pf-row.fail .pfi { color: var(--red); }
+  .pf-row.fail .pfd { color: #f1b8b8; }
+  .pf-row.skip .pfi, .pf-row.skip .pfn { color: var(--dim); }
+  .pf-row code { color: var(--cyan); font-size: 10px; }
+  #pf-summary { padding: 10px 16px; border-top: 1px solid var(--line); font-size: 10px; color: var(--dim); line-height: 1.7; }
+  #pf-summary b { color: #9fc09f; font-weight: 400; }
+  #pf-actions { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+  #pf-actions .btn { flex: 1; padding: 9px 0; text-align: center; }
+  #pf-actions .btn.go { color: var(--green); border-color: #234c32; }
+  #pf-spin { color: var(--dim); font-size: 11px; padding: 18px 16px; letter-spacing: .14em; }
 </style>
 </head>
 <body>
@@ -433,10 +490,13 @@
     <span class="led" id="led-ingest"><i></i>INGEST</span>
     <span class="led" id="led-stream"><i></i>STREAM</span>
     <span class="led" id="led-scene"><i></i>SCENE</span>
+    <span class="led" id="led-feed" style="display:none"><i></i>YT FEED</span>
   </div>
   <div class="spacer"></div>
+  <span id="stream-stats" title="viewers · subscribers · time on air (YouTube data; sim runs show uptime only)"></span>
   <span id="vitals-bar"></span>
   <span id="clock"></span>
+  <button id="preflight-btn" title="re-run the pre-stream checks (auth, broadcast, chat, keys)">✓ PREFLIGHT</button>
   <button id="kill" title="clear all model-generated content from the stage">◉ KILL GENERATED</button>
 </header>
 
@@ -488,6 +548,7 @@
       <button class="fchip" data-f="music">MUSIC</button>
       <button class="fchip" data-f="vote">VOTE</button>
       <button class="fchip" data-f="sc" style="color:#ffd34d">💰 SC</button>
+      <button class="fchip" data-f="new" style="color:#93c5fd" title="first-time chatters (last 5 min) — call them out!">✦ NEW</button>
       <input id="fsearch" placeholder="filter author / text…" autocomplete="off">
       <button id="fpause">⏸ PAUSE</button>
     </div>
@@ -525,6 +586,18 @@
   </section>
 </main>
 <div id="toast"></div>
+<div id="pf-modal" data-open="false">
+  <div id="pf-box">
+    <h1>PREFLIGHT — GO/NO-GO<small>streamer · YouTube auth · broadcast · chat feed · RTMP ingestion · API keys · quota</small></h1>
+    <div id="pf-spin" style="display:none">RUNNING CHECKS…</div>
+    <div id="pf-checks"></div>
+    <div id="pf-summary"></div>
+    <div id="pf-actions">
+      <button class="btn" id="pf-rerun">↻ RUN AGAIN</button>
+      <button class="btn go" id="pf-enter">ENTER CONSOLE →</button>
+    </div>
+  </div>
+</div>
 <div id="live-modal" data-open="false">
   <img id="live-img" alt="live broadcast monitor">
   <div id="live-cap"><b>●</b> LIVE MONITOR — the broadcast's own frames, video only · click or ESC to close</div>
@@ -537,7 +610,26 @@
   const toast = (msg) => { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 2600); };
   const api = (path, body) => fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}).then((r) => r.json());
 
-  setInterval(() => { $("#clock").textContent = new Date().toLocaleTimeString(); }, 1000);
+  // header clock + on-air timer. streamStartedAt comes from /admin/state
+  // (YouTube's actualStartTime when live; the ingest's boot time otherwise)
+  let streamStartedAt = 0, streamViewers = null, streamSubs = null;
+  const fmtNum = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 10000 ? Math.round(n / 1000) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
+  const fmtDur = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return `${h}:${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  };
+  function renderStreamStats() {
+    const parts = [];
+    if (streamViewers != null) parts.push(`👁 <b>${fmtNum(streamViewers)}</b>`);
+    if (streamSubs != null) parts.push(`⚑ <b>${fmtNum(streamSubs)}</b> subs`);
+    if (streamStartedAt) parts.push(`<span class="up">⏱ <b>${fmtDur(Date.now() - streamStartedAt)}</b></span>`);
+    $("#stream-stats").innerHTML = parts.join(" · ");
+  }
+  setInterval(() => {
+    $("#clock").textContent = new Date().toLocaleTimeString();
+    renderStreamStats(); // the on-air timer ticks every second
+  }, 1000);
 
   // ---- stage → chip class/label ----
   const CHIP = {
@@ -576,6 +668,8 @@
     // the 💰 chip also matches any row whose comment carried money
     if (filter === "sc") {
       if (!(e.stage === "superchat" || e.comment?.superchat)) return false;
+    } else if (filter === "new") {
+      if (!e.newUser) return false; // flagged server-side at first appearance
     } else if (filter !== "all" && !(GROUPS[filter] || []).includes(e.stage)) return false;
     if (search) {
       const c = e.comment || {};
@@ -604,7 +698,7 @@
       if (mus) song = `♪ ${mus.result.title} — ${mus.result.artist || "?"}`;
     }
     const row = document.createElement("div");
-    row.className = "row" + (c.superchat ? " sc" : "");
+    row.className = "row" + (c.superchat ? " sc" : "") + (e.newUser ? " nu" : "");
     row.dataset.seq = e.seq;
     if (e.stage === "superchat" && c.id) row.dataset.cid = c.id;
     const bannable = c.author && !["banned", "banned_by_mod", "unbanned"].includes(e.stage);
@@ -613,7 +707,7 @@
     row.innerHTML =
       `<span class="t">${esc((e.t || "").slice(11, 19))}</span>` +
       `<span class="chip ${cls}${replayable ? " replayable" : ""}" ${replayable ? 'title="apply anyway (mod override of the cooldown)"' : ""}>${esc(label)}</span>` +
-      `<span class="who">${esc(c.author || "")}${bannable ? `<span class="banbox"><button data-ban="${esc(c.author)}" data-cid="${esc(c.channelId || "")}">ban</button></span>` : ""}</span>` +
+      `<span class="who">${esc(c.author || "")}${e.newUser ? `<span class="newb" data-callout="${esc(c.author || "")}" data-avatar="${esc(c.avatar || "")}" title="first time here — click to put a welcome card on stage 👋">NEW</span>` : ""}${bannable ? `<span class="banbox"><button data-ban="${esc(c.author)}" data-cid="${esc(c.channelId || "")}">ban</button></span>` : ""}</span>` +
       `<span class="msg">${c.superchat ? `<span class="scamt">★ ${esc(c.superchat.amount || "PAID")}</span>` : ""}${linkify(c.text || "")}${detail ? ` <small>· ${esc(detail)}</small>` : ""}</span>` +
       `<span class="song">${esc(song)}</span>`;
     return row;
@@ -734,7 +828,7 @@
   // missed events flow back in the moment the freeze lifts
   let hoverPause = false, menuLock = false, missedWhileHover = false;
   let openMenu = null; // { box, who, cid }
-  const HOVER_SEL = ".chip.replayable, .banbox, .chip.c-sc"; // (feed-scoped — the pinned tray never scrolls, so it needs no freeze)
+  const HOVER_SEL = ".chip.replayable, .banbox, .chip.c-sc, .newb[data-callout]"; // (feed-scoped — the pinned tray never scrolls, so it needs no freeze)
   const flushMissed = () => { if (missedWhileHover && !paused) { missedWhileHover = false; rebuildFeed(); } };
   const unfreeze = () => { hoverPause = false; if (!menuLock) flushMissed(); };
   const closeMenu = (applied) => {
@@ -754,6 +848,25 @@
   // clicking anywhere outside an open ban menu dismisses it (and unfreezes)
   document.addEventListener("click", (ev) => {
     if (openMenu && !ev.target.closest(".banbox.mini-menu")) closeMenu(false);
+  });
+
+  // NEW-badge callout: one click → small welcome card on stage. Delegated at
+  // the document level so it works in the feed, the tray, and the user detail.
+  // The badge becomes a plain ✓ immediately (no double-fires); restored on failure.
+  document.addEventListener("click", async (ev) => {
+    const nb = ev.target.closest(".newb[data-callout]");
+    if (!nb) return;
+    const who = nb.dataset.callout, avatar = nb.dataset.avatar || "";
+    nb.removeAttribute("data-callout");
+    nb.textContent = "✓ NEW";
+    nb.title = "welcomed on stage";
+    unfreeze(); // leaving HOVER_SEL by attribute removal — release the feed explicitly
+    const r = await api("/admin/callout", { author: who, avatar }).catch(() => ({ ok: false }));
+    if (r.ok) { toast(`welcome card → ${who}`); return; }
+    nb.dataset.callout = who;
+    nb.textContent = "NEW";
+    nb.title = "first time here — click to put a welcome card on stage 👋";
+    toast(`callout failed: ${r.error || "?"}`);
   });
 
   // ban from the feed: the duration choice IS the confirmation
@@ -794,6 +907,7 @@
   // ---- state poll: health LEDs, bans, pending ----
   let rtab = "review", libFav = "all"; // right-panel tab + library filter (used by refresh)
   const pendEdit = new Set();          // pending ids currently in edit-in-place mode
+  const quotaSamples = [];             // rolling {t, u} window for the burn-rate ETA
   async function refresh() {
     let st;
     try { st = await api("/admin/state"); } catch { return; }
@@ -814,9 +928,65 @@
 
     // vitals (top bar) + title badge
     const v = st.vitals || {};
-    const quota = v.source === "youtube" ? ` · YT <b>${v.quotaUnits || 0}</b>/${v.quotaLimit || "?"}u` : "";
+    // quota burn-rate: project today's spend forward; only speak up when the
+    // cap would land BEFORE the midnight-Pacific reset (i.e. mid-show outage)
+    let quota = "";
+    if (v.source === "youtube") {
+      const now = Date.now(), units = v.quotaUnits || 0;
+      quotaSamples.push({ t: now, u: units });
+      while (quotaSamples.length && now - quotaSamples[0].t > 15 * 60000) quotaSamples.shift();
+      if (quotaSamples[0].u > units) quotaSamples.splice(0, quotaSamples.length - 1); // midnight reset → re-baseline
+      let eta = "";
+      const span = now - quotaSamples[0].t;
+      if (v.quotaLimit && units >= v.quotaLimit) {
+        eta = ` <span style="color:var(--red)" title="daily quota cap hit — chat polling is paused until midnight Pacific">CAP</span>`;
+      } else if (v.quotaLimit && span >= 60000) {
+        const rate = (units - quotaSamples[0].u) / span; // units per ms over the window
+        const msToCap = rate > 0 ? (v.quotaLimit - units) / rate : Infinity;
+        if (v.quotaResetMs != null && msToCap < v.quotaResetMs) {
+          eta = ` <span style="color:var(--amber)" title="at the current burn rate the daily cap lands before the midnight-Pacific reset — chat polling pauses when it hits">cap ~${new Date(now + msToCap).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>`;
+        }
+      }
+      quota = ` · YT <b>${units}</b>/${v.quotaLimit || "?"}u${eta}`;
+    }
     const ai = v.aiOn ? ` · AI <b>${v.anthropicCalls || 0}</b> calls` : "";
     $("#vitals-bar").innerHTML = `<b>${v.processed || 0}</b> in · <b>${v.applied || 0}</b> applied · <b>${v.blocked || 0}</b> blocked${quota}${ai}`;
+
+    // YT FEED watchdog LED: chat-poll freshness + token-refresh health. The
+    // poller retries auth failures silently forever — this is where a mod
+    // finds out, instead of "why is chat quiet?"
+    const fh = v.feed, ledF = $("#led-feed");
+    if (!fh) ledF.style.display = "none";
+    else {
+      ledF.style.display = "";
+      const now = Date.now();
+      const agoM = (t) => `${Math.max(0, Math.round((now - t) / 60000))}m`;
+      const staleMs = (fh.pollIdleMs || 60000) + 30000; // idle cadence + grace
+      let cls = "led on", tip;
+      if (fh.tokenFailingSince) {
+        cls = "led bad";
+        tip = `AUTH FAILING for ${agoM(fh.tokenFailingSince)} — token refresh is erroring (retrying with backoff). If it persists: node packages/ingest/src/youtube-auth.js, update YT_REFRESH_TOKEN, restart.`;
+      } else if (fh.quotaPausedUntil) {
+        cls = "led warn";
+        tip = `quota cap — chat polling paused ~${Math.max(1, Math.ceil((fh.quotaPausedUntil - now) / 60000))}m until the Pacific-midnight reset`;
+      } else if (!fh.lastPollOkAt) {
+        cls = "led warn";
+        tip = "no successful chat poll yet — waiting for broadcast discovery / Go Live";
+      } else if (now - fh.lastPollOkAt > staleMs) {
+        cls = "led warn";
+        tip = `chat poll silent for ${agoM(fh.lastPollOkAt)} (expected every ≤${Math.round((fh.pollIdleMs || 60000) / 1000)}s) — check ingest logs`;
+      } else {
+        tip = `chat feed healthy — last poll ${agoM(fh.lastPollOkAt)} ago · last comment ${fh.lastCommentAt ? agoM(fh.lastCommentAt) + " ago" : "none yet"}`;
+      }
+      ledF.className = cls;
+      ledF.title = tip;
+    }
+    // stream stats (viewers / subs / on-air timer) — the timer ticks locally
+    // between polls; viewers/subs stay hidden until YouTube reports them
+    streamViewers = Number.isFinite(v.viewers) ? v.viewers : null;
+    streamSubs = Number.isFinite(v.subscribers) ? v.subscribers : null;
+    streamStartedAt = v.streamStartedAt || 0;
+    renderStreamStats();
     // authoritative callout tray (survives reloads; shared between mods)
     awaiting = new Map((st.scAwait || []).filter((e) => e.comment?.id).map((e) => [e.comment.id, e]));
     renderTray();
@@ -1465,7 +1635,10 @@
   // activity (BLOCKED also matches currently banned/muted), search → name/id
   let lastUsers = [];
   function userPasses(u) {
-    if (filter !== "all") {
+    if (filter === "new") {
+      // mirror the feed's NEW chip: first seen within the last 5 minutes
+      if (!(u.first && Date.now() - new Date(u.first).getTime() < 5 * 60 * 1000)) return false;
+    } else if (filter !== "all") {
       const g = GROUPS[filter] || [];
       const hasActivity = g.some((s) => u.stages[s]);
       const statusMatch = filter === "blocked" && (u.banned || u.muted);
@@ -1572,6 +1745,58 @@
     $("#kill").textContent = "◉ KILL GENERATED";
     api("/admin/clear", {}).then(() => toast("cleared all generated content"));
   });
+
+  // ---- preflight modal: pre-stream go/no-go at console entry ----
+  // Auto-opens once per tab session and runs the server-side checks (streamer,
+  // YouTube auth/broadcast/chat, Anthropic key, quota). All green → closes
+  // itself; anything failed/warned stays up with instructions. The header
+  // ✓ PREFLIGHT button re-opens it any time (e.g. right before Go Live).
+  const pfModal = $("#pf-modal");
+  const PF_ICON = { ok: "●", warn: "▲", fail: "✕", skip: "—" };
+  let pfBusy = false;
+  async function runPreflight(auto) {
+    if (pfBusy) return;
+    pfBusy = true;
+    $("#pf-spin").style.display = "";
+    $("#pf-checks").innerHTML = "";
+    $("#pf-summary").innerHTML = "";
+    let r = null;
+    try { r = await api("/admin/preflight", {}); } catch { /* rendered below */ }
+    pfBusy = false;
+    $("#pf-spin").style.display = "none";
+    if (!r?.ok) {
+      $("#pf-checks").innerHTML = `<div class="pf-row fail"><span class="pfi">✕</span><span class="pfn">ingest</span><span class="pfd">preflight endpoint unreachable — is the ingest process up? (live.sh status)</span></div>`;
+      return;
+    }
+    $("#pf-checks").innerHTML = r.checks.map((c) =>
+      `<div class="pf-row ${esc(c.status)}"><span class="pfi">${PF_ICON[c.status] || "?"}</span><span class="pfn">${esc(c.name)}</span><span class="pfd">${esc(c.detail || "")}</span></div>`).join("");
+    const s = r.summary || {};
+    $("#pf-summary").innerHTML =
+      `config (env-driven — edit .env + restart via live.sh to change): ` +
+      `source <b>${esc(s.source || "?")}</b> · director <b>${esc(s.director || "?")}</b> · ` +
+      `moderation LLM <b>${esc(s.moderationLLM || "off")}</b> · cards <b>${s.cards ? "on" : "off"}</b>` +
+      `${s.holdCards ? " (hold for review)" : ""} · music <b>${s.music ? "on" : "off"}</b> · ` +
+      `votes <b>${s.votes ? "on" : "off"}</b> · audio <b>${esc(s.audioMode || "?")}</b>` +
+      `${s.dryRun ? ' · <span style="color:var(--amber)">DRY-RUN (not pushing RTMP)</span>' : ""}`;
+    const fails = r.checks.filter((c) => c.status === "fail").length;
+    const warns = r.checks.filter((c) => c.status === "warn").length;
+    if (auto && !fails && !warns) {
+      // nothing needs a human — show the green board briefly, then get out of the way
+      setTimeout(() => { if (pfModal.dataset.open === "true") { pfModal.dataset.open = "false"; toast("preflight: all green ✓"); } }, 2200);
+    } else if (fails) {
+      toast(`preflight: ${fails} check${fails === 1 ? "" : "s"} FAILED`);
+    }
+  }
+  const openPreflight = (auto) => { pfModal.dataset.open = "true"; runPreflight(auto); };
+  $("#preflight-btn").addEventListener("click", () => openPreflight(false));
+  $("#pf-rerun").addEventListener("click", () => runPreflight(false));
+  $("#pf-enter").addEventListener("click", () => { pfModal.dataset.open = "false"; });
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && pfModal.dataset.open === "true") pfModal.dataset.open = "false"; });
+  // entry gate: once per tab session, so mid-stream reloads don't re-block the console
+  if (!sessionStorage.getItem("hl-preflight-seen")) {
+    sessionStorage.setItem("hl-preflight-seen", "1");
+    openPreflight(true);
+  }
 })();
 </script>
 </body>

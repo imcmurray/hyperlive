@@ -19,12 +19,12 @@ import { automation, loadAutomations, setAutomationPoster, emitAutomation, super
 import { loadStages, listStages, getStage, featuresOf } from "./stages.js";
 import { getFeature, setActiveFeatures } from "./features.js";
 import { loadAssets } from "./assets.js";
-import { startAdmin, publishFeed, enqueuePending, previewMarkup, setVitalsProvider, setReplayHandler } from "./admin.js";
-import { unitsSpent } from "./quota.js";
+import { startAdmin, publishFeed, enqueuePending, previewMarkup, setVitalsProvider, setReplayHandler, loadFirstSeen } from "./admin.js";
+import { unitsSpent, msUntilQuotaReset } from "./quota.js";
 import { anthropicCalls_ } from "./usage.js";
 import { simulatorSource, liveSimulatorSource } from "./simulator.js";
-import { youtubeSource } from "./youtube.js";
-import { createStreamLikes } from "./stream-likes.js";
+import { youtubeSource, feedHealth } from "./youtube.js";
+import { createStreamLikes, streamStats } from "./stream-likes.js";
 
 const moderator = createModerator();
 const director = createDirector();
@@ -272,14 +272,26 @@ async function main() {
   if (assetCount) console.log(`[ingest] asset library: ${assetCount} saved`);
   const banCount = await loadBans();
   if (banCount) console.log(`[ingest] ban list: ${banCount} entr${banCount === 1 ? "y" : "ies"}`);
-  setVitalsProvider(() => ({
-    processed, applied, blocked,
-    quotaUnits: unitsSpent(),
-    quotaLimit: config.yt.quotaLimit,
-    source: config.source,
-    anthropicCalls: anthropicCalls_(),
-    aiOn: !!config.anthropicKey,
-  }));
+  const knownCount = await loadFirstSeen();
+  if (knownCount) console.log(`[ingest] first-seen ledger: ${knownCount} known viewers (NEW badges survive restarts)`);
+  const bootTs = Date.now(); // uptime fallback until YouTube reports actualStartTime
+  setVitalsProvider(() => {
+    const s = streamStats(); // viewers/subs stay null off-YouTube (header shows nothing fake)
+    return {
+      processed, applied, blocked,
+      quotaUnits: unitsSpent(),
+      quotaLimit: config.yt.quotaLimit,
+      quotaResetMs: config.source === "youtube" ? msUntilQuotaReset() : null,
+      source: config.source,
+      anthropicCalls: anthropicCalls_(),
+      aiOn: !!config.anthropicKey,
+      viewers: s.viewers,
+      subscribers: s.subscribers,
+      streamStartedAt: s.startedAt || bootTs,
+      // chat-feed watchdog (youtube only): the dashboard's YT FEED LED
+      feed: config.source === "youtube" ? { ...feedHealth(), pollIdleMs: config.yt.pollIdleMs } : null,
+    };
+  });
   // dashboard replay: mod overrides a cooldown skip — intent re-runs and the
   // result lands in the feed through the normal audit path
   setReplayHandler(async (comment) => {
@@ -309,9 +321,9 @@ async function main() {
   const moodEngine = config.mood ? createMoodEngine({ state: moodState, postMutate, log: console.log }) : null;
   if (moodEngine) moodEngine.start();
 
-  // Stream-like milestones: poll the YouTube video's like count and celebrate
-  // milestones (youtube source only — the simulator has no real likes)
-  const streamLikes = (config.source === "youtube" && config.streamLikes)
+  // Stream-like milestones + header stats: one videos.list poller covers both
+  // (youtube source only — the simulator has no real likes or viewers)
+  const streamLikes = (config.source === "youtube" && (config.streamLikes || config.streamStats))
     ? createStreamLikes({ postMutate, log: console.log }) : null;
   if (streamLikes) streamLikes.start();
 

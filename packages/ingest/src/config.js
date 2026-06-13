@@ -72,6 +72,10 @@ export const config = {
   // distinct from chat hearts, which like the current SONG. youtube source only.
   streamLikes: (process.env.STREAM_LIKES || "on").toLowerCase() !== "off",
   streamLikesPollMs: num(process.env.STREAM_LIKES_POLL_MS, 45000), // videos.list ≈ 1 unit/poll
+  // --- Stream stats for the mod dashboard header (viewers / subs / uptime) ---
+  // viewers + start time ride the SAME videos.list poll as likes (no extra
+  // quota); subscribers add a channels.list (~1 unit) every few minutes.
+  streamStats: (process.env.STREAM_STATS || "on").toLowerCase() !== "off",
 
   // --- YouTube source (only needed when source=youtube). See docs/youtube-oauth.md ---
   yt: {

@@ -15,6 +15,16 @@ import { getAccessToken } from "./youtube-auth.js";
 import { bill, unitsSpent, loadUsage, msUntilQuotaReset } from "./quota.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---- feed health for the dashboard watchdog --------------------------------
+// The poll loop retries token failures quietly forever (correct for a 24/7
+// run), which means auth death is INVISIBLE to a moderator — chat just goes
+// quiet. These timestamps let the dashboard turn that into an amber/red LED.
+// videoId is the CURRENT broadcast id from discovery — the authoritative answer
+// to "which broadcast are we on", which the stats/likes poller follows so it
+// never clings to a stale persisted id from a past stream.
+const health = { lastPollOkAt: 0, lastCommentAt: 0, tokenFailingSince: 0, quotaPausedUntil: 0, videoId: "" };
+export const feedHealth = () => ({ ...health });
 // NB: control/ is root-owned (the streamer container writes there), so the
 // host-run ingest can't write it — keep the cursor in a user-writable dir.
 const CURSOR_FILE = process.env.YT_CURSOR_FILE || "./state/yt-cursor.json";
@@ -34,9 +44,13 @@ async function saveCursor(liveChatId, pageToken, seen) {
 // 24/7 ingest. Retry with backoff; only a missing-config error is unrecoverable.
 async function getTokenWithRetry(force = false) {
   for (let delay = 5000; ; delay = Math.min(delay * 2, 120000)) {
-    try { return await getAccessToken(force); }
-    catch (e) {
+    try {
+      const t = await getAccessToken(force);
+      health.tokenFailingSince = 0; // refresh works again
+      return t;
+    } catch (e) {
       if (/YT_CLIENT_ID/.test(e.message)) throw e; // config missing — retrying won't help
+      if (!health.tokenFailingSince) health.tokenFailingSince = Date.now();
       console.error(`[youtube] token refresh failed: ${e.message} — retry ${delay / 1000}s`);
       await sleep(delay);
     }
@@ -47,7 +61,9 @@ async function getTokenWithRetry(force = false) {
 async function sleepUntilQuotaReset(what) {
   const ms = msUntilQuotaReset();
   console.log(`[youtube] quota cutoff: spent ${unitsSpent()}/${config.yt.quotaLimit} units today — pausing ${what} ~${Math.ceil(ms / 60000)}m until the Pacific-midnight reset`);
+  health.quotaPausedUntil = Date.now() + ms; // the LED explains the silence instead of crying wolf
   await sleep(ms);
+  health.quotaPausedUntil = 0;
   console.log(`[youtube] quota reset — resuming ${what}`);
 }
 
@@ -68,19 +84,51 @@ function toComment(item) {
   };
 }
 
-// discover the active broadcast → its video id (== broadcast id, what statistics
-// are keyed by) and its liveChatId. Shared by the chat poller and the like poller.
-export async function discoverActiveBroadcast(token) {
+// Pure broadcast selector (no I/O — unit-tested). Picks the broadcast to attach
+// to from raw liveBroadcasts.list items:
+//   · an ON-AIR broadcast (broadcastStatus=active) always wins.
+//   · otherwise a WAITING one that's bound and whose chat is already open —
+//     `testing` (in preview) ranks above `ready`, earliest scheduled first.
+//     `created` (merely scheduled, no stream bound) and chat-less items are
+//     skipped, so we never attach to a future scheduled stream.
+// Returns the lifecycle status so callers can tell "on air" from "waiting".
+export function chooseBroadcast(activeItems = [], upcomingItems = []) {
+  const onAir = (activeItems || []).find((b) => b.snippet?.liveChatId);
+  if (onAir) return { id: onAir.id, liveChatId: onAir.snippet.liveChatId, status: onAir.status?.lifeCycleStatus || "live" };
+  const rank = (b) => (b.status?.lifeCycleStatus === "testing" ? 0 : 1); // testing outranks ready
+  const w = (upcomingItems || [])
+    .filter((b) => b.snippet?.liveChatId && ["ready", "testing"].includes(b.status?.lifeCycleStatus))
+    .sort((a, b) => rank(a) - rank(b) ||
+      String(a.snippet.scheduledStartTime || "").localeCompare(String(b.snippet.scheduledStartTime || "")))[0];
+  return w ? { id: w.id, liveChatId: w.snippet.liveChatId, status: w.status?.lifeCycleStatus || "" }
+    : { id: "", liveChatId: "", status: "" };
+}
+
+async function listBroadcasts(token, broadcastStatus) {
   const url = new URL("https://www.googleapis.com/youtube/v3/liveBroadcasts");
-  url.searchParams.set("part", "snippet");
-  url.searchParams.set("broadcastStatus", "active");
+  url.searchParams.set("part", "snippet,status");
+  url.searchParams.set("broadcastStatus", broadcastStatus);
   url.searchParams.set("broadcastType", "all");
+  url.searchParams.set("maxResults", "20");
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   await bill(1); // liveBroadcasts.list ≈ 1 unit
   if (!res.ok) throw new Error(`liveBroadcasts.list http ${res.status}: ${(await res.text()).slice(0, 160)}`);
-  const j = await res.json();
-  const item = j.items?.[0];
-  return { id: item?.id || "", liveChatId: item?.snippet?.liveChatId || "" };
+  return (await res.json()).items || [];
+}
+
+// Discover the broadcast to attach to → its video id (== broadcast id, what
+// statistics are keyed by), liveChatId, and lifecycle status. Prefers the LIVE
+// broadcast; falls back to a READY/TESTING one whose chat is already open, so
+// the ingest picks up the waiting-room chat before Go Live (YouTube's
+// broadcastStatus=active misses those). The on-air case stays a single call;
+// the upcoming probe (1 more unit) only fires when nothing is live.
+// Shared by the chat poller, the like/stats poller, and the dashboard preflight.
+export async function discoverActiveBroadcast(token, { includeUpcoming = true } = {}) {
+  const active = await listBroadcasts(token, "active");
+  const hit = chooseBroadcast(active, []);
+  if (hit.id || !includeUpcoming) return hit;
+  const upcoming = await listBroadcasts(token, "upcoming");
+  return chooseBroadcast(active, upcoming);
 }
 
 async function resolveLiveChatId(token) {
@@ -88,8 +136,12 @@ async function resolveLiveChatId(token) {
   for (;;) {
     if (unitsSpent() >= config.yt.quotaLimit) { await sleepUntilQuotaReset("broadcast discovery"); token = await getTokenWithRetry(); }
     const b = await discoverActiveBroadcast(token).catch((e) => { console.error("[youtube] discover:", e.message); return { liveChatId: "" }; });
-    if (b.liveChatId) return b.liveChatId;
-    console.log("[youtube] no active broadcast yet — re-checking in 15s (start 'Go Live' on YouTube)");
+    if (b.liveChatId) {
+      health.videoId = b.id || ""; // stats/likes poller follows this current broadcast
+      if (b.status && b.status !== "live") console.log(`[youtube] attached to ${b.status} broadcast (chat open pre-live) — video ${b.id} | will keep reading through Go Live`);
+      return b.liveChatId;
+    }
+    console.log("[youtube] no live or ready broadcast yet — re-checking in 15s (it attaches as soon as a broadcast's chat opens, before Go Live)");
     await sleep(15000);
   }
 }
@@ -155,6 +207,7 @@ export async function* youtubeSource() {
       }
       if (!res.ok) { console.error(`[youtube] poll http ${res.status} — retry 5s`); await sleep(5000); continue; }
       data = await res.json();
+      health.lastPollOkAt = Date.now();
     } catch (e) {
       console.error("[youtube] poll error:", e.message, "— retry 5s");
       await sleep(5000);
@@ -171,6 +224,7 @@ export async function* youtubeSource() {
       for (const item of data.items || []) {
         if (seen.has(item.id)) continue;   // dedup (resume boundary + probe overlap)
         seen.add(item.id); processed++;
+        health.lastCommentAt = Date.now();
         yield toComment(item);
       }
       if (seen.size > SEEN_MAX) { // trim the in-memory log, keep the most recent half
