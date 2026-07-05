@@ -144,7 +144,9 @@
       const votes = Math.max(0, Math.round(Number(o.votes) || 0));
       const pct = Math.round((votes / max) * 100);
       seen.add(o.key);
-      let row = wrap.querySelector('.vote-opt[data-key="' + o.key + '"]');
+      // o.key is already allowlisted to a constant THEME above; CSS.escape is
+      // belt-and-suspenders so this selector can never be an injection surface.
+      let row = wrap.querySelector('.vote-opt[data-key="' + CSS.escape(o.key) + '"]');
       if (!row) {
         row = document.createElement("div");
         row.className = "vote-opt";
